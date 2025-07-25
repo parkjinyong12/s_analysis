@@ -8,19 +8,51 @@
 
     <!-- 수집 설정 -->
     <div class="collector-settings" v-if="!status.is_running">
-      <div class="setting-group">
-        <label for="years">수집 기간:</label>
-        <select id="years" v-model="settings.years" class="form-select">
-          <option value="1">1년</option>
-          <option value="2">2년</option>
-          <option value="3">3년</option>
-          <option value="5">5년</option>
-        </select>
+      <div class="settings-row">
+        <div class="setting-group">
+          <label for="years">수집 기간:</label>
+          <select id="years" v-model="settings.years" class="form-select">
+            <option value="1">1년</option>
+            <option value="2">2년</option>
+            <option value="3">3년</option>
+            <option value="5">5년</option>
+          </select>
+        </div>
+        
+        <div class="setting-group">
+          <label for="maxPages">최대 페이지:</label>
+          <select id="maxPages" v-model="settings.max_pages" class="form-select">
+            <option value="5">5페이지</option>
+            <option value="10">10페이지</option>
+            <option value="15">15페이지</option>
+            <option value="20">20페이지</option>
+            <option value="30">30페이지</option>
+            <option value="40">40페이지</option>
+            <option value="50">50페이지 (최대)</option>
+          </select>
+        </div>
+      </div>
+      
+      <!-- 관리 버튼들 -->
+      <div class="management-buttons">
+        <button @click="clearAllTradingData" class="btn btn-danger" :disabled="isLoading">
+          🗑️ 전체 거래 데이터 초기화
+        </button>
+        <button @click="calculateAccumulatedData" class="btn btn-info" :disabled="isLoading">
+          📊 누적 데이터 계산
+        </button>
       </div>
       
       <div class="setting-info">
-        <p>💡 <strong>{{ stockList.length }}개 종목</strong>의 최근 {{ settings.years }}년간 데이터를 수집합니다</p>
+        <p>💡 <strong>{{ stockList.length }}개 종목</strong>의 최근 {{ settings.years }}년간 데이터를 수집합니다 (종목당 최대 {{ settings.max_pages }}페이지)</p>
         <p>⏱️ 예상 소요 시간: 약 {{ estimatedTime }}분</p>
+        <p class="setting-note">📄 페이지 수가 많을수록 더 많은 과거 데이터를 수집할 수 있지만, 시간이 오래 걸립니다.</p>
+        <p class="warning-note" v-if="settings.max_pages >= 40">
+          ⚠️ <strong>{{ settings.max_pages }}페이지 수집 시 주의사항:</strong><br>
+          • 수집 시간이 매우 오래 걸릴 수 있습니다 ({{ Math.ceil(estimatedTime) }}분 예상)<br>
+          • 네트워크 연결 상태를 확인해주세요<br>
+          • 수집 중 브라우저를 닫지 마세요
+        </p>
       </div>
     </div>
 
@@ -145,14 +177,15 @@
 </template>
 
 <script>
-import axios from 'axios'
+import { api, API_ENDPOINTS } from '@/config/api'
 
 export default {
   name: 'DataCollector',
   data() {
     return {
       settings: {
-        years: 3
+        years: 3,
+        max_pages: 10
       },
       status: {
         is_running: false,
@@ -176,8 +209,9 @@ export default {
   },
   computed: {
     estimatedTime() {
-      // 주식당 약 3초 + 네트워크 지연 고려
-      return Math.ceil((this.stockList.length * 3) / 60)
+      // 주식당 페이지당 약 2초 + 네트워크 지연 고려
+      const timePerStock = this.settings.max_pages * 2
+      return Math.ceil((this.stockList.length * timePerStock) / 60)
     }
   },
   mounted() {
@@ -191,7 +225,7 @@ export default {
   methods: {
     async loadStockList() {
       try {
-        const response = await axios.get('/collector/stocks')
+        const response = await api.get(API_ENDPOINTS.COLLECTOR.STOCKS)
         this.stockList = response.data.stocks || []
       } catch (error) {
         console.error('주식 목록 로딩 실패:', error)
@@ -201,7 +235,7 @@ export default {
 
     async loadStatus() {
       try {
-        const response = await axios.get('/collector/status')
+        const response = await api.get(API_ENDPOINTS.COLLECTOR.STATUS)
         this.status = { ...this.status, ...response.data }
       } catch (error) {
         console.error('상태 로딩 실패:', error)
@@ -225,8 +259,9 @@ export default {
     async startCollection() {
       this.isLoading = true
       try {
-        const response = await axios.post('/collector/start', {
-          years: this.settings.years
+        const response = await api.post(API_ENDPOINTS.COLLECTOR.START, {
+          years: parseInt(this.settings.years),
+          max_pages: parseInt(this.settings.max_pages)
         })
         
         this.$emit('show-message', response.data.message, 'success')
@@ -243,7 +278,7 @@ export default {
 
     async stopCollection() {
       try {
-        const response = await axios.post('/collector/stop')
+        const response = await api.post(API_ENDPOINTS.COLLECTOR.STOP)
         this.$emit('show-message', response.data.message, 'warning')
         
       } catch (error) {
@@ -253,9 +288,52 @@ export default {
       }
     },
 
+    // 전체 거래 데이터 초기화
+    async clearAllTradingData() {
+      if (!confirm('⚠️ 정말로 모든 거래 데이터를 삭제하시겠습니까?\n\n이 작업은 되돌릴 수 없습니다.')) {
+        return
+      }
+      
+      if (!confirm('⚠️ 다시 한 번 확인합니다.\n\n모든 주식의 거래 데이터가 완전히 삭제됩니다.\n계속하시겠습니까?')) {
+        return
+      }
+
+      this.isLoading = true
+      try {
+        const response = await api.delete(API_ENDPOINTS.COLLECTOR.CLEAR_ALL_TRADING)
+        const message = `✅ ${response.data.message}\n삭제된 데이터: ${response.data.deleted_count}건`
+        this.$emit('show-message', message, 'success')
+      } catch (error) {
+        console.error('전체 거래 데이터 초기화 실패:', error)
+        const message = error.response?.data?.error || '전체 거래 데이터 초기화에 실패했습니다.'
+        this.$emit('show-message', `❌ 초기화 실패: ${message}`, 'error')
+      } finally {
+        this.isLoading = false
+      }
+    },
+
+    // 누적 데이터 계산
+    async calculateAccumulatedData() {
+      if (!confirm('모든 주식의 누적 매수량 데이터를 계산하시겠습니까?')) {
+        return
+      }
+
+      this.isLoading = true
+      try {
+        const response = await api.post(API_ENDPOINTS.COLLECTOR.CALCULATE_ACCUMULATED)
+        this.$emit('show-message', `✅ ${response.data.message}`, 'success')
+      } catch (error) {
+        console.error('누적 데이터 계산 실패:', error)
+        const message = error.response?.data?.error || '누적 데이터 계산에 실패했습니다.'
+        this.$emit('show-message', `❌ 계산 실패: ${message}`, 'error')
+      } finally {
+        this.isLoading = false
+      }
+    },
+
     async resetStatus() {
       try {
-        const response = await axios.post('/collector/reset')
+        const response = await api.post(API_ENDPOINTS.COLLECTOR.RESET)
         this.$emit('show-message', response.data.message, 'info')
         this.loadStatus()
         
@@ -344,11 +422,19 @@ export default {
   margin-bottom: 20px;
 }
 
+.settings-row {
+  display: flex;
+  gap: 30px;
+  margin-bottom: 15px;
+  flex-wrap: wrap;
+}
+
 .setting-group {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 15px;
+  flex: 1;
+  min-width: 200px;
 }
 
 .setting-group label {
@@ -373,6 +459,22 @@ export default {
 .setting-info p {
   margin: 5px 0;
   font-size: 14px;
+}
+
+.setting-note {
+  color: #6c757d;
+  font-style: italic;
+}
+
+.warning-note {
+  background: #fff3cd;
+  border: 1px solid #ffeaa7;
+  border-radius: 4px;
+  padding: 12px;
+  margin-top: 10px;
+  color: #856404;
+  font-size: 13px;
+  line-height: 1.4;
 }
 
 .progress-section {
@@ -647,6 +749,59 @@ export default {
   border-radius: 8px;
   padding: 20px;
   text-align: center;
+}
+
+/* 관리 버튼 스타일 */
+.management-buttons {
+  margin-top: 20px;
+  padding: 15px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  display: flex;
+  gap: 15px;
+  flex-wrap: wrap;
+}
+
+.btn-danger {
+  background: #dc3545;
+  color: white;
+  border: none;
+  padding: 10px 15px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  transition: all 0.2s;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #c82333;
+}
+
+.btn-danger:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-info {
+  background: #17a2b8;
+  color: white;
+  border: none;
+  padding: 10px 15px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  transition: all 0.2s;
+}
+
+.btn-info:hover:not(:disabled) {
+  background: #138496;
+}
+
+.btn-info:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .completion-message h3 {

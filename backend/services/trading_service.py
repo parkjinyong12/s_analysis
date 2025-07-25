@@ -4,6 +4,7 @@ Stock Investor Trading 서비스 계층
 """
 from typing import List, Optional
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import or_
 from backend.models.trading import StockInvestorTrading
 from backend.extensions import db
 import re
@@ -176,6 +177,96 @@ class TradingService:
             raise ValueError("데이터베이스 제약 조건 위반") from e
         except Exception as e:
             db.session.rollback()
+            raise Exception(f"거래 데이터 생성 중 오류 발생: {str(e)}") from e
+
+    @staticmethod
+    def create_trading_data_batch(
+        stock_code: str, 
+        stock_name: str, 
+        trade_date: str,
+        close_price: Optional[int] = None,
+        institution_net_buy: Optional[int] = None,
+        foreigner_net_buy: Optional[int] = None,
+        institution_accum: Optional[int] = None,
+        foreigner_accum: Optional[int] = None,
+        institution_trend_signal: Optional[str] = None,
+        institution_trend_score: Optional[float] = None,
+        foreigner_trend_signal: Optional[str] = None,
+        foreigner_trend_score: Optional[float] = None
+    ) -> Optional[StockInvestorTrading]:
+        """
+        새 거래 데이터 생성 (배치 처리용 - 즉시 커밋하지 않음)
+        
+        Args:
+            stock_code (str): 주식 코드
+            stock_name (str): 주식명
+            trade_date (str): 거래 날짜
+            close_price (Optional[int]): 종가
+            institution_net_buy (Optional[int]): 기관 순매수
+            foreigner_net_buy (Optional[int]): 외국인 순매수
+            institution_accum (Optional[int]): 기관 누적 매수
+            foreigner_accum (Optional[int]): 외국인 누적 매수
+            institution_trend_signal (Optional[str]): 기관 트렌드 신호
+            institution_trend_score (Optional[float]): 기관 트렌드 점수
+            foreigner_trend_signal (Optional[str]): 외국인 트렌드 신호
+            foreigner_trend_score (Optional[float]): 외국인 트렌드 점수
+            
+        Returns:
+            Optional[StockInvestorTrading]: 생성된 거래 데이터 객체 (실패 시 None)
+            
+        Raises:
+            ValueError: 입력값이 잘못된 경우
+        """
+        try:
+            # 필수 입력값 검증
+            if not stock_code or not stock_code.strip():
+                raise ValueError("주식 코드는 필수입니다.")
+            
+            if not TradingService.validate_stock_code(stock_code.strip()):
+                raise ValueError(f"주식 코드는 6자리 숫자여야 하며 {TradingService.MAX_STOCK_CODE_LENGTH}자 이내여야 합니다.")
+            
+            if not stock_name or not stock_name.strip():
+                raise ValueError("주식명은 필수입니다.")
+            
+            if not TradingService.validate_stock_name(stock_name):
+                raise ValueError(f"주식명은 1자 이상 {TradingService.MAX_STOCK_NAME_LENGTH}자 이내여야 합니다.")
+            
+            if not trade_date or not trade_date.strip():
+                raise ValueError("거래 날짜는 필수입니다.")
+            
+            if not TradingService.validate_date_format(trade_date.strip()):
+                raise ValueError(f"거래 날짜는 YYYY-MM-DD 형식이어야 하며 {TradingService.MAX_TRADE_DATE_LENGTH}자 이내여야 합니다.")
+            
+            # 선택 입력값 검증
+            if close_price is not None and close_price < 0:
+                raise ValueError("종가는 0 이상이어야 합니다.")
+            
+            if institution_trend_signal and not TradingService.validate_trend_signal(institution_trend_signal):
+                raise ValueError(f"기관 트렌드 신호는 {TradingService.MAX_TREND_SIGNAL_LENGTH}자 이내여야 합니다.")
+            
+            if foreigner_trend_signal and not TradingService.validate_trend_signal(foreigner_trend_signal):
+                raise ValueError(f"외국인 트렌드 신호는 {TradingService.MAX_TREND_SIGNAL_LENGTH}자 이내여야 합니다.")
+            
+            # 거래 데이터 생성 (DB에 저장하지 않고 객체만 생성)
+            trading_data = StockInvestorTrading.create_trading_data(
+                stock_code=stock_code.strip(),
+                stock_name=stock_name.strip(),
+                trade_date=trade_date.strip(),
+                close_price=close_price,
+                institution_net_buy=institution_net_buy,
+                foreigner_net_buy=foreigner_net_buy,
+                institution_accum=institution_accum,
+                foreigner_accum=foreigner_accum,
+                institution_trend_signal=institution_trend_signal.strip() if institution_trend_signal else None,
+                institution_trend_score=institution_trend_score,
+                foreigner_trend_signal=foreigner_trend_signal.strip() if foreigner_trend_signal else None,
+                foreigner_trend_score=foreigner_trend_score
+            )
+            
+            # 여기서는 커밋하지 않음 - 호출자가 배치로 처리
+            return trading_data
+            
+        except Exception as e:
             raise Exception(f"거래 데이터 생성 중 오류 발생: {str(e)}") from e
 
     @staticmethod
@@ -380,6 +471,34 @@ class TradingService:
             
             return StockInvestorTrading.query.filter(
                 StockInvestorTrading.stock_name.like(f'%{name.strip()}%')
+            ).order_by(StockInvestorTrading.trade_date.desc()).all()
+            
+        except Exception as e:
+            raise Exception(f"거래 데이터 검색 중 오류 발생: {str(e)}") from e
+
+    @staticmethod
+    def search_trading_data_by_query(query: str) -> List[StockInvestorTrading]:
+        """
+        주식 코드 또는 주식명으로 거래 데이터 검색
+        
+        Args:
+            query (str): 검색할 주식 코드 또는 주식명 (부분 일치)
+            
+        Returns:
+            List[StockInvestorTrading]: 검색된 거래 데이터 목록
+        """
+        try:
+            if not query or not query.strip():
+                return []
+            
+            search_term = query.strip()
+            
+            # 주식 코드 또는 주식명에서 검색 (OR 조건)
+            return StockInvestorTrading.query.filter(
+                or_(
+                    StockInvestorTrading.stock_code.like(f'%{search_term}%'),
+                    StockInvestorTrading.stock_name.like(f'%{search_term}%')
+                )
             ).order_by(StockInvestorTrading.trade_date.desc()).all()
             
         except Exception as e:

@@ -1,31 +1,56 @@
 from flask import Flask
-from backend.extensions import db, cors
+from flask_cors import CORS
+from backend.extensions import db, cors, executor
 import os
+import sqlite3
 
 def create_app():
+    """Flask 애플리케이션 팩토리"""
     app = Flask(__name__)
-    cors.init_app(app)
+    
+    # 설정 로드
     app.config.from_object('backend.config.Config')
+    
+    # 확장 초기화
     db.init_app(app)
+    cors.init_app(app)
+    executor.init_app(app)
     
-    # Blueprint 등록
+    # 블루프린트 등록
     from backend.views.user import user_bp
-    app.register_blueprint(user_bp)
-    
     from backend.views.sample import sample_bp
-    app.register_blueprint(sample_bp)
-    
     from backend.views.stock import stock_bp
-    app.register_blueprint(stock_bp)
-    
     from backend.views.trading import trading_bp
-    app.register_blueprint(trading_bp)
-    
     from backend.views.data_collector import collector_bp
+    from backend.views.api_test import api_test_bp
+    
+    app.register_blueprint(user_bp)
+    app.register_blueprint(sample_bp)
+    app.register_blueprint(stock_bp)
+    app.register_blueprint(trading_bp)
     app.register_blueprint(collector_bp)
+    app.register_blueprint(api_test_bp)
+    
+    # 데이터베이스 테이블 생성 및 WAL 모드 설정
+    with app.app_context():
+        db.create_all()
+        
+        # SQLite WAL 모드 활성화 (동시성 개선)
+        db_path = os.path.join(os.path.dirname(__file__), 'app.db')
+        try:
+            conn = sqlite3.connect(db_path)
+            conn.execute('PRAGMA journal_mode=WAL')
+            conn.execute('PRAGMA synchronous=NORMAL')
+            conn.execute('PRAGMA cache_size=10000')
+            conn.execute('PRAGMA temp_store=MEMORY')
+            conn.commit()
+            conn.close()
+            print("SQLite WAL 모드 활성화 완료")
+        except Exception as e:
+            print(f"SQLite WAL 모드 설정 실패: {e}")
     
     return app
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     app = create_app()
-    app.run(debug=True) 
+    app.run(host='127.0.0.1', port=5000, debug=True) 

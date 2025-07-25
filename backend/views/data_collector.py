@@ -2,84 +2,75 @@
 Data Collector REST API 뷰
 데이터 수집 작업을 관리하는 API 엔드포인트를 제공합니다.
 """
-from flask import Blueprint, jsonify, request
-from backend.services.data_collector import DataCollectorService
-import logging
-import threading
-import time
+from flask import Blueprint, jsonify, request, current_app
 from datetime import datetime
-from typing import Dict, Any
+import logging
+import time
+from backend.extensions import executor
+from backend.services.data_collector import DataCollectorService
+from backend.models.stock import StockList
+from backend.services.stock_service import StockService
 
-# 로거 설정
+# 로깅 설정
 logger = logging.getLogger(__name__)
 
-# Blueprint 생성
+# 블루프린트 생성
 collector_bp = Blueprint('collector', __name__, url_prefix='/collector')
 
-# 전역 상태 관리
+# 전역 상태 관리 (프론트엔드 호환성을 위해)
 collection_status = {
     'is_running': False,
+    'current_phase': 'idle',  # 프론트엔드와 호환
     'current_stock': '',
     'progress': 0,
     'total_stocks': 0,
     'success_count': 0,
     'failed_count': 0,
+    'failed_stocks': [],  # 프론트엔드와 호환
     'start_time': None,
     'end_time': None,
-    'current_phase': 'idle',  # idle, initializing, collecting, completed, error
     'error_message': '',
-    'failed_stocks': []
+    'task_id': None,
+    'elapsed_time': None
 }
 
-
-def reset_collection_status():
-    """수집 상태 초기화"""
-    global collection_status
-    collection_status.update({
-        'is_running': False,
-        'current_stock': '',
-        'progress': 0,
-        'total_stocks': 0,
-        'success_count': 0,
-        'failed_count': 0,
-        'start_time': None,
-        'end_time': None,
-        'current_phase': 'idle',
-        'error_message': '',
-        'failed_stocks': []
-    })
-
-
-def update_progress(phase: str, current_stock: str = '', progress: int = 0, 
-                   success_count: int = 0, failed_count: int = 0, 
-                   error_message: str = '', failed_stock: str = ''):
-    """진행률 업데이트"""
+def update_progress(phase, current_stock='', progress=0, success=0, failed=0, error_msg='', failed_stock=None):
+    """진행률 업데이트 헬퍼 함수"""
     global collection_status
     
     collection_status.update({
         'current_phase': phase,
         'current_stock': current_stock,
         'progress': progress,
-        'success_count': success_count,
-        'failed_count': failed_count,
-        'error_message': error_message
+        'success_count': success,
+        'failed_count': failed,
+        'error_message': error_msg
     })
     
-    if failed_stock and failed_stock not in collection_status['failed_stocks']:
+    if failed_stock:
         collection_status['failed_stocks'].append(failed_stock)
+    
+    # 경과 시간 계산
+    if collection_status['start_time']:
+        start_time = datetime.fromisoformat(collection_status['start_time'])
+        if collection_status['end_time']:
+            end_time = datetime.fromisoformat(collection_status['end_time'])
+            collection_status['elapsed_time'] = str(end_time - start_time)
+        else:
+            collection_status['elapsed_time'] = str(datetime.now() - start_time)
     
     logger.info(f"진행률 업데이트: {phase} - {current_stock} ({progress}%)")
 
-
-def collect_data_background(years: int = 3):
-    """백그라운드에서 데이터 수집 실행"""
+@executor.job
+def collect_data_background(years: int = 3, max_pages: int = 10):
+    """Flask-Executor를 사용한 백그라운드 데이터 수집"""
     global collection_status
     
     try:
         collection_status['is_running'] = True
         collection_status['start_time'] = datetime.now().isoformat()
         
-        logger.info("백그라운드 데이터 수집 시작")
+        logger.info(f"백그라운드 데이터 수집 시작 ({years}년, 최대 {max_pages}페이지)")
         
         # 1. 초기화 단계
         update_progress('initializing', '주식 목록 초기화 중...', 0)
@@ -87,16 +78,15 @@ def collect_data_background(years: int = 3):
         # 주식 목록 초기화
         if not DataCollectorService.initialize_stock_list():
             update_progress('error', '', 0, 0, 0, '주식 목록 초기화 실패')
-            return
+            return {'status': 'error', 'message': '주식 목록 초기화 실패'}
         
         # 2. 주식 목록 조회
-        from backend.services.stock_service import StockService
         stocks = StockService.get_all_stocks()
         collection_status['total_stocks'] = len(stocks)
         
         if not stocks:
             update_progress('error', '', 0, 0, 0, '수집할 주식이 없습니다')
-            return
+            return {'status': 'error', 'message': '수집할 주식이 없습니다'}
         
         logger.info(f"총 {len(stocks)}개 주식 데이터 수집 시작")
         
@@ -117,268 +107,503 @@ def collect_data_background(years: int = 3):
                 update_progress('collecting', f"{stock.stock_code} {stock.stock_name}", 
                               progress, success_count, failed_count)
                 
-                # 데이터 수집 실행
                 success = DataCollectorService.collect_and_save_trading_data(
-                    stock.stock_code, stock.stock_name, years
+                    stock.stock_code, stock.stock_name, years, max_pages
                 )
                 
                 if success:
                     success_count += 1
-                    logger.info(f"수집 완료: {stock.stock_code} {stock.stock_name}")
                 else:
                     failed_count += 1
                     update_progress('collecting', f"{stock.stock_code} {stock.stock_name}", 
                                   progress, success_count, failed_count, 
-                                  '', f"{stock.stock_code} {stock.stock_name}")
-                    logger.warning(f"수집 실패: {stock.stock_code} {stock.stock_name}")
+                                  failed_stock=f"{stock.stock_code} {stock.stock_name}")
                 
                 # 요청 간 대기
                 time.sleep(DataCollectorService.REQUEST_DELAY)
                 
             except Exception as e:
                 failed_count += 1
-                error_msg = f"{stock.stock_code} {stock.stock_name}: {str(e)}"
                 update_progress('collecting', f"{stock.stock_code} {stock.stock_name}", 
                               progress, success_count, failed_count, 
-                              '', error_msg)
-                logger.error(f"주식 데이터 수집 중 오류: {error_msg}")
+                              failed_stock=f"{stock.stock_code} {stock.stock_name}: {str(e)}")
+                logger.error(f"주식 데이터 수집 중 오류: {stock.stock_code}, {e}")
                 continue
         
-        # 4. 완료 단계
-        final_progress = 100
+        final_progress = 100 if collection_status['is_running'] else progress
         collection_status['end_time'] = datetime.now().isoformat()
         
         if collection_status['is_running']:  # 정상 완료
             update_progress('completed', '데이터 수집 완료', final_progress, 
                           success_count, failed_count)
             logger.info(f"데이터 수집 완료: 성공 {success_count}개, 실패 {failed_count}개")
+            return {'status': 'completed', 'success_count': success_count, 'failed_count': failed_count}
         else:  # 중단됨
             update_progress('cancelled', '데이터 수집 중단됨', progress, 
                           success_count, failed_count)
             logger.info("데이터 수집이 중단되었습니다")
+            return {'status': 'cancelled', 'success_count': success_count, 'failed_count': failed_count}
         
     except Exception as e:
         collection_status['end_time'] = datetime.now().isoformat()
         update_progress('error', '', 0, 0, 0, f'데이터 수집 중 오류: {str(e)}')
         logger.error(f"데이터 수집 중 치명적 오류: {e}")
+        return {'status': 'error', 'message': str(e)}
     
     finally:
         collection_status['is_running'] = False
-
+        collection_status['task_id'] = None
 
 @collector_bp.route('/status', methods=['GET'])
 def get_collection_status():
     """
     데이터 수집 상태 조회
-    
-    Returns:
-        JSON: 현재 수집 상태 정보
-        
-    Example:
-        GET /collector/status
-        Response: {
-            "is_running": true,
-            "current_stock": "005930 삼성전자",
-            "progress": 45,
-            "total_stocks": 50,
-            "success_count": 20,
-            "failed_count": 2,
-            "current_phase": "collecting",
-            "start_time": "2024-01-01T10:00:00",
-            "failed_stocks": ["000001 주식A"]
-        }
     """
     try:
-        # 경과 시간 계산
-        elapsed_time = None
-        if collection_status['start_time']:
-            start_time = datetime.fromisoformat(collection_status['start_time'])
-            if collection_status['end_time']:
-                end_time = datetime.fromisoformat(collection_status['end_time'])
-                elapsed_time = str(end_time - start_time)
-            else:
-                elapsed_time = str(datetime.now() - start_time)
-        
-        response_data = {
-            **collection_status,
-            'elapsed_time': elapsed_time
-        }
-        
-        return jsonify(response_data), 200
+        return jsonify(collection_status), 200
         
     except Exception as e:
         logger.error(f"상태 조회 실패: {str(e)}")
         return jsonify({
-            'error': '상태 조회에 실패했습니다.',
-            'message': str(e)
+            'status': 'error',
+            'error': str(e),
+            'timestamp': datetime.now().isoformat()
         }), 500
-
 
 @collector_bp.route('/start', methods=['POST'])
 def start_collection():
     """
     데이터 수집 시작
-    
-    Request Body:
-        years (int): 수집할 기간 (년 단위, 선택, 기본값: 3)
-        
-    Returns:
-        JSON: 수집 시작 결과
-        
-    Example:
-        POST /collector/start
-        Body: {"years": 3}
-        Response: {"result": "success", "message": "데이터 수집이 시작되었습니다."}
     """
+    global collection_status
+    
     try:
-        # 이미 실행 중인지 확인
         if collection_status['is_running']:
             return jsonify({
-                'error': '데이터 수집이 이미 실행 중입니다.',
-                'current_phase': collection_status['current_phase']
+                'status': 'error',
+                'error': '데이터 수집이 이미 진행 중입니다',
+                'timestamp': datetime.now().isoformat()
             }), 400
         
         # 요청 데이터 파싱
-        data = request.get_json() if request.is_json else {}
-        years = data.get('years', 3)
+        data = request.get_json() or {}
         
-        # 입력값 검증
-        if not isinstance(years, int) or years < 1 or years > 10:
+        # 타입 변환 및 기본값 설정
+        try:
+            years = int(data.get('years', 3))
+            max_pages = int(data.get('max_pages', 10))
+        except (ValueError, TypeError):
             return jsonify({
-                'error': '수집 기간은 1년 이상 10년 이하의 정수여야 합니다.',
-                'field': 'years'
+                'status': 'error',
+                'error': '수집 기간과 페이지 수는 숫자여야 합니다',
+                'timestamp': datetime.now().isoformat()
+            }), 400
+        
+        # 입력 검증
+        if years < 1 or years > 10:
+            return jsonify({
+                'status': 'error',
+                'error': f'수집 기간은 1-10년 사이여야 합니다 (입력값: {years}년)',
+                'timestamp': datetime.now().isoformat()
+            }), 400
+        
+        if max_pages < 1 or max_pages > 50:
+            return jsonify({
+                'status': 'error',
+                'error': f'페이지 수는 1-50 사이여야 합니다 (입력값: {max_pages}페이지)',
+                'timestamp': datetime.now().isoformat()
             }), 400
         
         # 상태 초기화
-        reset_collection_status()
+        collection_status.update({
+            'is_running': True,
+            'current_phase': 'initializing',
+            'current_stock': '',
+            'progress': 0,
+            'total_stocks': 0,
+            'success_count': 0,
+            'failed_count': 0,
+            'failed_stocks': [],
+            'start_time': datetime.now().isoformat(),
+            'end_time': None,
+            'error_message': ''
+        })
         
-        # 백그라운드 스레드에서 데이터 수집 시작
-        collection_thread = threading.Thread(
-            target=collect_data_background, 
-            args=(years,),
-            daemon=True
-        )
-        collection_thread.start()
+        # Flask-Executor로 백그라운드 작업 시작
+        future = collect_data_background.submit(years, max_pages)
+        collection_status['task_id'] = str(id(future))
         
-        logger.info(f"데이터 수집 시작 요청: {years}년")
+        logger.info(f"데이터 수집 시작: {years}년, {max_pages}페이지, 작업 ID: {collection_status['task_id']}")
         
         return jsonify({
-            'result': 'success',
-            'message': f'{years}년간의 데이터 수집이 시작되었습니다.',
-            'years': years
+            'status': 'success',
+            'message': f'{years}년간의 데이터 수집이 시작되었습니다 (최대 {max_pages}페이지)',
+            'task_id': collection_status['task_id'],
+            'timestamp': datetime.now().isoformat()
         }), 200
         
     except Exception as e:
         logger.error(f"데이터 수집 시작 실패: {str(e)}")
+        collection_status['is_running'] = False
         return jsonify({
-            'error': '데이터 수집을 시작하는데 실패했습니다.',
-            'message': str(e)
+            'status': 'error',
+            'error': f'데이터 수집 시작 실패: {str(e)}',
+            'timestamp': datetime.now().isoformat()
         }), 500
-
 
 @collector_bp.route('/stop', methods=['POST'])
 def stop_collection():
     """
     데이터 수집 중단
-    
-    Returns:
-        JSON: 수집 중단 결과
-        
-    Example:
-        POST /collector/stop
-        Response: {"result": "success", "message": "데이터 수집 중단 요청이 전송되었습니다."}
     """
     try:
         if not collection_status['is_running']:
             return jsonify({
-                'error': '실행 중인 데이터 수집이 없습니다.',
-                'current_phase': collection_status['current_phase']
+                'status': 'error',
+                'error': '진행 중인 데이터 수집이 없습니다',
+                'timestamp': datetime.now().isoformat()
             }), 400
         
-        # 중단 플래그 설정
+        # 수집 중단 플래그 설정
         collection_status['is_running'] = False
-        collection_status['current_phase'] = 'stopping'
         
         logger.info("데이터 수집 중단 요청")
         
         return jsonify({
-            'result': 'success',
-            'message': '데이터 수집 중단 요청이 전송되었습니다.'
+            'status': 'success',
+            'message': '데이터 수집 중단이 요청되었습니다',
+            'timestamp': datetime.now().isoformat()
         }), 200
         
     except Exception as e:
         logger.error(f"데이터 수집 중단 실패: {str(e)}")
         return jsonify({
-            'error': '데이터 수집을 중단하는데 실패했습니다.',
-            'message': str(e)
+            'status': 'error',
+            'error': f'데이터 수집 중단 실패: {str(e)}',
+            'timestamp': datetime.now().isoformat()
         }), 500
-
 
 @collector_bp.route('/reset', methods=['POST'])
 def reset_collection():
     """
-    데이터 수집 상태 초기화
-    
-    Returns:
-        JSON: 초기화 결과
-        
-    Example:
-        POST /collector/reset
-        Response: {"result": "success", "message": "수집 상태가 초기화되었습니다."}
+    수집 상태 초기화
     """
+    global collection_status
+    
     try:
+        # 진행 중인 작업이 있으면 중단
         if collection_status['is_running']:
-            return jsonify({
-                'error': '실행 중인 데이터 수집이 있습니다. 먼저 중단해주세요.',
-                'current_phase': collection_status['current_phase']
-            }), 400
+            collection_status['is_running'] = False
         
-        reset_collection_status()
+        # 상태 완전 초기화
+        collection_status = {
+            'is_running': False,
+            'current_phase': 'idle',
+            'current_stock': '',
+            'progress': 0,
+            'total_stocks': 0,
+            'success_count': 0,
+            'failed_count': 0,
+            'failed_stocks': [],
+            'start_time': None,
+            'end_time': None,
+            'error_message': '',
+            'task_id': None,
+            'elapsed_time': None
+        }
         
         logger.info("데이터 수집 상태 초기화")
         
         return jsonify({
-            'result': 'success',
-            'message': '수집 상태가 초기화되었습니다.'
+            'status': 'success',
+            'message': '수집 상태가 초기화되었습니다',
+            'timestamp': datetime.now().isoformat()
         }), 200
         
     except Exception as e:
         logger.error(f"상태 초기화 실패: {str(e)}")
         return jsonify({
-            'error': '상태를 초기화하는데 실패했습니다.',
-            'message': str(e)
+            'status': 'error',
+            'error': f'상태 초기화 실패: {str(e)}',
+            'timestamp': datetime.now().isoformat()
         }), 500
-
 
 @collector_bp.route('/stocks', methods=['GET'])
 def get_available_stocks():
     """
     수집 가능한 주식 목록 조회
-    
-    Returns:
-        JSON: 주식 목록
-        
-    Example:
-        GET /collector/stocks
-        Response: [{"code": "005930", "name": "삼성전자"}, ...]
     """
     try:
-        # 기본 제공 주식 목록 반환
-        stocks = [
-            {"code": stock["code"], "name": stock["name"]} 
-            for stock in DataCollectorService.DEFAULT_STOCK_LIST
-        ]
+        stocks = StockService.get_all_stocks()
+        
+        stock_list = []
+        for stock in stocks:
+            stock_list.append({
+                'code': stock.stock_code,
+                'name': stock.stock_name
+            })
+        
+        # 주식이 없으면 빈 목록 반환 (DB 기반)
+        if not stock_list:
+            logger.warning("DB에 등록된 주식이 없습니다.")
         
         return jsonify({
-            'stocks': stocks,
-            'total_count': len(stocks)
+            'stocks': stock_list,
+            'total_count': len(stock_list)
         }), 200
         
     except Exception as e:
         logger.error(f"주식 목록 조회 실패: {str(e)}")
         return jsonify({
-            'error': '주식 목록을 조회하는데 실패했습니다.',
-            'message': str(e)
+            'status': 'error',
+            'error': str(e),
+            'timestamp': datetime.now().isoformat()
+        }), 500
+
+@collector_bp.route('/calculate-accumulated', methods=['POST'])
+def calculate_accumulated_data():
+    """
+    모든 주식의 누적 매수량 데이터를 계산
+    
+    Returns:
+        JSON: 계산 결과
+    """
+    try:
+        logger.info("누적 데이터 계산 요청")
+        
+        # 누적 데이터 계산
+        results = DataCollectorService.calculate_all_accumulated_data()
+        
+        return jsonify({
+            'status': 'success' if results.get('success_stocks', 0) > 0 else 'info',
+            'message': f"누적 데이터 계산 완료: 성공 {results.get('success_stocks', 0)}개, 실패 {results.get('failed_stocks', 0)}개",
+            'results': results,
+            'timestamp': datetime.now().isoformat()
+        }), 200
+            
+    except Exception as e:
+        logger.error(f"누적 데이터 계산 실패: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'error': str(e),
+            'timestamp': datetime.now().isoformat()
+        }), 500
+
+
+@collector_bp.route('/clear-all-trading-data', methods=['DELETE'])
+def clear_all_trading_data():
+    """
+    모든 거래 데이터를 삭제
+    
+    Returns:
+        JSON: 삭제 결과
+    """
+    try:
+        logger.info("전체 거래 데이터 초기화 요청")
+        
+        # 모든 거래 데이터 삭제
+        results = DataCollectorService.clear_all_trading_data()
+        
+        if 'error' in results:
+            return jsonify({
+                'status': 'error',
+                'error': results['error'],
+                'timestamp': datetime.now().isoformat()
+            }), 500
+        
+        return jsonify({
+            'status': 'success',
+            'message': results['message'],
+            'deleted_count': results['deleted_count'],
+            'timestamp': datetime.now().isoformat()
+        }), 200
+            
+    except Exception as e:
+        logger.error(f"전체 거래 데이터 초기화 실패: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'error': str(e),
+            'timestamp': datetime.now().isoformat()
+        }), 500
+
+
+@collector_bp.route('/clear-trading-data/<stock_code>', methods=['DELETE'])
+def clear_trading_data_by_stock(stock_code):
+    """
+    특정 종목의 거래 데이터를 삭제
+    
+    Args:
+        stock_code (str): 주식 코드
+        
+    Returns:
+        JSON: 삭제 결과
+    """
+    try:
+        logger.info(f"종목별 거래 데이터 초기화 요청: {stock_code}")
+        
+        # 입력값 검증
+        if not stock_code or not stock_code.strip():
+            return jsonify({
+                'status': 'error',
+                'error': '주식 코드는 필수입니다.',
+                'timestamp': datetime.now().isoformat()
+            }), 400
+        
+        # 해당 종목의 거래 데이터 삭제
+        success = DataCollectorService.clear_trading_data_by_stock(stock_code.strip())
+        
+        if success:
+            return jsonify({
+                'status': 'success',
+                'message': f'{stock_code} 종목의 거래 데이터가 삭제되었습니다.',
+                'stock_code': stock_code,
+                'timestamp': datetime.now().isoformat()
+            }), 200
+        else:
+            return jsonify({
+                'status': 'error',
+                'error': f'{stock_code} 종목의 거래 데이터 삭제에 실패했습니다.',
+                'stock_code': stock_code,
+                'timestamp': datetime.now().isoformat()
+            }), 500
+            
+    except Exception as e:
+        logger.error(f"종목별 거래 데이터 초기화 실패: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'error': str(e),
+            'stock_code': stock_code,
+            'timestamp': datetime.now().isoformat()
+        }), 500
+
+
+@collector_bp.route('/clear-trading-data-bulk', methods=['DELETE'])
+def clear_trading_data_bulk():
+    """
+    여러 종목의 거래 데이터를 일괄 삭제
+    
+    Request Body:
+        stock_codes (List[str]): 삭제할 주식 코드 목록
+        
+    Returns:
+        JSON: 삭제 결과
+    """
+    try:
+        logger.info("일괄 거래 데이터 초기화 요청")
+        
+        # 요청 데이터 검증
+        if not request.is_json:
+            return jsonify({
+                'status': 'error',
+                'error': 'Content-Type은 application/json이어야 합니다.',
+                'timestamp': datetime.now().isoformat()
+            }), 400
+            
+        data = request.get_json()
+        
+        if not data or 'stock_codes' not in data:
+            return jsonify({
+                'status': 'error',
+                'error': 'stock_codes 필드는 필수입니다.',
+                'timestamp': datetime.now().isoformat()
+            }), 400
+        
+        stock_codes = data['stock_codes']
+        
+        if not isinstance(stock_codes, list) or len(stock_codes) == 0:
+            return jsonify({
+                'status': 'error',
+                'error': 'stock_codes는 비어있지 않은 배열이어야 합니다.',
+                'timestamp': datetime.now().isoformat()
+            }), 400
+        
+        # 여러 종목의 거래 데이터 삭제
+        results = DataCollectorService.clear_trading_data_by_stocks(stock_codes)
+        
+        return jsonify({
+            'status': 'success' if results['success_stocks'] > 0 else 'error',
+            'message': f"일괄 삭제 완료: 성공 {results['success_stocks']}개, 실패 {results['failed_stocks']}개",
+            'results': results,
+            'timestamp': datetime.now().isoformat()
+        }), 200
+            
+    except Exception as e:
+        logger.error(f"일괄 거래 데이터 초기화 실패: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'error': str(e),
+            'timestamp': datetime.now().isoformat()
+        }), 500
+
+
+@collector_bp.route('/calculate-accumulated/<stock_code>', methods=['POST'])
+def calculate_accumulated_data_by_stock(stock_code):
+    """
+    특정 종목의 누적 매수량 데이터를 계산
+    
+    Args:
+        stock_code (str): 주식 코드
+        
+    Returns:
+        JSON: 계산 결과
+    """
+    try:
+        logger.info(f"종목별 누적 데이터 계산 요청: {stock_code}")
+        
+        # 입력값 검증
+        if not stock_code or not stock_code.strip():
+            return jsonify({
+                'status': 'error',
+                'error': '주식 코드는 필수입니다.',
+                'timestamp': datetime.now().isoformat()
+            }), 400
+        
+        # 해당 종목의 누적 데이터 계산
+        success = DataCollectorService.calculate_accumulated_data(stock_code.strip())
+        
+        if success:
+            return jsonify({
+                'status': 'success',
+                'message': f'{stock_code} 종목의 누적 데이터 계산이 완료되었습니다.',
+                'stock_code': stock_code,
+                'timestamp': datetime.now().isoformat()
+            }), 200
+        else:
+            return jsonify({
+                'status': 'error',
+                'error': f'{stock_code} 종목의 누적 데이터 계산에 실패했습니다.',
+                'stock_code': stock_code,
+                'timestamp': datetime.now().isoformat()
+            }), 500
+            
+    except Exception as e:
+        logger.error(f"종목별 누적 데이터 계산 실패: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'error': str(e),
+            'stock_code': stock_code,
+            'timestamp': datetime.now().isoformat()
+        }), 500
+
+
+@collector_bp.route('/test-url/<stock_code>', methods=['GET'])
+def test_url(stock_code):
+    """
+    특정 주식의 데이터를 가져오는 테스트 엔드포인트
+    """
+    try:
+        # 실제 데이터 수집 로직을 호출하는 대신, 단순히 주어진 코드를 반환
+        return jsonify({
+            'status': 'success',
+            'message': f'테스트 URL 호출: {stock_code}',
+            'timestamp': datetime.now().isoformat()
+        }), 200
+    except Exception as e:
+        logger.error(f"테스트 URL 호출 실패: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'error': str(e),
+            'timestamp': datetime.now().isoformat()
         }), 500
 
 

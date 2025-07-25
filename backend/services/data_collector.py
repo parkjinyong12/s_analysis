@@ -4,328 +4,468 @@
 """
 import requests
 from bs4 import BeautifulSoup
-import time
+import pandas as pd
 from datetime import datetime, timedelta
-from typing import List, Dict, Optional, Tuple
+import time
+import logging
+from typing import Dict, List, Optional
+from backend.extensions import db
+from backend.models.stock import StockList
 from backend.services.stock_service import StockService
 from backend.services.trading_service import TradingService
-import logging
+import re
+from sqlalchemy.exc import OperationalError
 
-# 로거 설정
+# 로깅 설정
 logger = logging.getLogger(__name__)
-
+# 디버깅을 위한 로그 레벨 설정
+logger.setLevel(logging.INFO)  # DEBUG에서 INFO로 변경
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    handler.setLevel(logging.INFO)  # DEBUG에서 INFO로 변경
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
 
 class DataCollectorService:
-    """주식 데이터 수집 서비스 클래스"""
+    """
+    주식 데이터 수집 서비스
+    네이버 금융에서 주식 거래 데이터를 크롤링하여 데이터베이스에 저장
+    """
     
     # 기본 설정
     BASE_URL = "https://finance.naver.com/item/frgn.naver"
-    HEADERS = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-    REQUEST_DELAY = 0.5  # 요청 간 대기 시간 (초)
+    REQUEST_DELAY = 1.0  # 요청 간 대기 시간 (초)
     
-    # 대형주 종목 리스트 (시가총액 상위 50개)
-    DEFAULT_STOCK_LIST = [
-        {"code": "005930", "name": "삼성전자"},
-        {"code": "000660", "name": "SK하이닉스"},
-        {"code": "207940", "name": "삼성바이오로직스"},
-        {"code": "373220", "name": "LG에너지솔루션"},
-        {"code": "005380", "name": "현대차"},
-        {"code": "068270", "name": "셀트리온"},
-        {"code": "000270", "name": "기아"},
-        {"code": "035420", "name": "NAVER"},
-        {"code": "105560", "name": "KB금융"},
-        {"code": "012450", "name": "한화에어로스페이스"},
-        {"code": "005490", "name": "POSCO홀딩스"},
-        {"code": "329180", "name": "HD현대중공업"},
-        {"code": "012330", "name": "현대모비스"},
-        {"code": "055550", "name": "신한지주"},
-        {"code": "042660", "name": "한화오션"},
-        {"code": "138040", "name": "메리츠금융지주"},
-        {"code": "028260", "name": "삼성물산"},
-        {"code": "035720", "name": "카카오"},
-        {"code": "096770", "name": "SK이노베이션"},
-        {"code": "000810", "name": "삼성화재"},
-        {"code": "051910", "name": "LG화학"},
-        {"code": "086790", "name": "하나금융지주"},
-        {"code": "010130", "name": "고려아연"},
-        {"code": "011200", "name": "HMM"},
-        {"code": "034020", "name": "두산에너빌리티"},
-        {"code": "032830", "name": "삼성생명"},
-        {"code": "259960", "name": "크래프톤"},
-        {"code": "009540", "name": "HD한국조선해양"},
-        {"code": "015760", "name": "한국전력"},
-        {"code": "006400", "name": "삼성SDI"},
-        {"code": "066570", "name": "LG전자"},
-        {"code": "402340", "name": "SK스퀘어"},
-        {"code": "010140", "name": "삼성중공업"},
-        {"code": "030200", "name": "KT"},
-        {"code": "024110", "name": "기업은행"},
-        {"code": "316140", "name": "우리금융지주"},
-        {"code": "033780", "name": "KT&G"},
-        {"code": "004990", "name": "롯데지주"},
-        {"code": "017670", "name": "SK텔레콤"},
-        {"code": "267260", "name": "HD현대일렉트릭"},
-        {"code": "003550", "name": "LG"},
-        {"code": "323410", "name": "카카오뱅크"},
-        {"code": "003670", "name": "포스코퓨처엠"},
-        {"code": "047050", "name": "포스코인터내셔널"},
-        {"code": "009150", "name": "삼성전기"},
-        {"code": "034730", "name": "SK"},
-        {"code": "000100", "name": "유한양행"},
-        {"code": "352820", "name": "하이브"},
-        {"code": "018260", "name": "삼성에스디에스"},
-        {"code": "086280", "name": "현대글로비스"}
-    ]
+    # 주식 목록은 DB의 stock_list 테이블에서 관리됩니다.
     
     @staticmethod
-    def parse_date(date_str: str) -> Optional[str]:
+    def test_url_access(stock_code: str) -> bool:
         """
-        날짜 문자열을 파싱하여 YYYY-MM-DD 형식으로 변환
-        
-        Args:
-            date_str (str): 원본 날짜 문자열 (YYYY.MM.DD 형식)
-            
-        Returns:
-            Optional[str]: 변환된 날짜 문자열 (YYYY-MM-DD) 또는 None
+        URL 접근 테스트
         """
         try:
-            date_obj = datetime.strptime(date_str.strip(), "%Y.%m.%d")
-            return date_obj.strftime("%Y-%m-%d")
-        except ValueError as e:
-            logger.warning(f"날짜 파싱 오류: {e}, date_str: {date_str}")
-            return None
-    
-    @staticmethod
-    def parse_number(number_str: str) -> Optional[int]:
-        """
-        숫자 문자열을 파싱하여 정수로 변환
-        
-        Args:
-            number_str (str): 원본 숫자 문자열 (콤마, +/- 기호 포함)
+            params = {'code': stock_code}
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            }
             
-        Returns:
-            Optional[int]: 변환된 정수 또는 None
-        """
-        try:
-            # 콤마와 + 기호 제거, - 기호는 유지
-            cleaned = number_str.strip().replace(',', '').replace('+', '')
-            return int(cleaned) if cleaned and cleaned != '-' else 0
-        except (ValueError, AttributeError) as e:
-            logger.warning(f"숫자 파싱 오류: {e}, number_str: {number_str}")
-            return None
-    
-    @staticmethod
-    def crawl_trading_data(stock_code: str, years: int = 3) -> List[Dict]:
-        """
-        네이버 금융에서 특정 주식의 거래 데이터를 크롤링
-        
-        Args:
-            stock_code (str): 주식 코드 (6자리)
-            years (int): 수집할 기간 (년 단위, 기본값: 3년)
+            response = requests.get(DataCollectorService.BASE_URL, params=params, headers=headers, timeout=10)
+            logger.info(f"URL 테스트 - 상태코드: {response.status_code}, URL: {response.url}")
             
-        Returns:
-            List[Dict]: 거래 데이터 리스트
-        """
-        logger.info(f"주식 데이터 크롤링 시작: {stock_code} ({years}년)")
-        
-        # 날짜 범위 설정
-        end_date = datetime.today()
-        start_date = end_date - timedelta(days=years * 365)
-        
-        data = []
-        page = 1
-        
-        while True:
-            try:
-                # URL 구성 및 요청
-                url = f"{DataCollectorService.BASE_URL}?code={stock_code}&page={page}"
-                response = requests.get(url, headers=DataCollectorService.HEADERS, timeout=10)
-                
-                if response.status_code != 200:
-                    logger.error(f"페이지 로딩 실패 (페이지 {page}): HTTP {response.status_code}")
-                    break
-                
-                # HTML 파싱
-                soup = BeautifulSoup(response.text, "html.parser")
-                tables = soup.select("table.type2")
-                
-                if not tables or len(tables) < 2:
-                    logger.warning(f"테이블을 찾을 수 없습니다 (페이지 {page})")
-                    break
-                
-                # 두 번째 테이블에서 데이터 추출
-                table = tables[1]
-                rows = table.select("tr")
-                
-                page_has_data = False
-                
-                for row in rows[2:]:  # 헤더 행 제외
-                    cols = row.find_all("td")
-                    if len(cols) <= 6:  # 필요한 컬럼 수 확인
-                        continue
-                    
-                    # 날짜 파싱
-                    date_str = cols[0].text.strip()
-                    if not date_str:
-                        continue
-                    
-                    parsed_date = DataCollectorService.parse_date(date_str)
-                    if not parsed_date:
-                        continue
-                    
-                    date_obj = datetime.strptime(parsed_date, "%Y-%m-%d")
-                    
-                    # 날짜 범위 체크
-                    if date_obj < start_date:
-                        logger.info(f"수집 기간 종료: {parsed_date}")
-                        return data
-                    
-                    # 데이터 파싱
-                    close_price = DataCollectorService.parse_number(cols[1].text)
-                    institution_net_buy = DataCollectorService.parse_number(cols[5].text)
-                    foreigner_net_buy = DataCollectorService.parse_number(cols[6].text)
-                    
-                    # 파싱된 데이터 검증
-                    if any(x is None for x in [close_price, institution_net_buy, foreigner_net_buy]):
-                        logger.warning(f"데이터 파싱 실패: {date_str}")
-                        continue
-                    
-                    page_has_data = True
-                    data.append({
-                        'trade_date': parsed_date,
-                        'close_price': close_price,
-                        'institution_net_buy': institution_net_buy,
-                        'foreigner_net_buy': foreigner_net_buy
-                    })
-                
-                if not page_has_data:
-                    logger.info(f"더 이상 데이터가 없습니다 (페이지 {page})")
-                    break
-                
-                page += 1
-                time.sleep(DataCollectorService.REQUEST_DELAY)  # 서버 부하 방지
-                
-            except requests.RequestException as e:
-                logger.error(f"네트워크 오류 (페이지 {page}): {e}")
-                break
-            except Exception as e:
-                logger.error(f"예상치 못한 오류 (페이지 {page}): {e}")
-                break
-        
-        logger.info(f"크롤링 완료: {stock_code}, 총 {len(data)}개 데이터")
-        return data
+            # HTML 길이 확인
+            logger.info(f"HTML 길이: {len(response.content)} bytes")
+            
+            # HTML 샘플 출력
+            soup = BeautifulSoup(response.content, 'html.parser')
+            logger.info(f"HTML 제목: {soup.title.string if soup.title else 'None'}")
+            
+            # 테이블 개수 확인
+            tables = soup.find_all('table')
+            logger.info(f"테이블 개수: {len(tables)}")
+            
+            return response.status_code == 200
+            
+        except Exception as e:
+            logger.error(f"URL 접근 테스트 실패: {e}")
+            return False
     
     @staticmethod
     def initialize_stock_list() -> bool:
         """
-        기본 주식 목록을 DB에 초기화
+        주식 목록 초기화 (DB 기반)
         
         Returns:
-            bool: 성공 여부
+            bool: 초기화 성공 여부 (DB에 주식이 있으면 True)
         """
         try:
-            logger.info("주식 목록 초기화 시작")
+            logger.info("주식 목록 초기화 시작 - DB 확인")
             
-            success_count = 0
-            for stock_info in DataCollectorService.DEFAULT_STOCK_LIST:
-                try:
-                    # 이미 존재하는지 확인
-                    existing_stock = StockService.get_stock_by_code(stock_info['code'])
-                    if existing_stock:
-                        logger.debug(f"이미 존재하는 주식: {stock_info['code']} {stock_info['name']}")
-                        continue
-                    
-                    # 새로운 주식 추가
-                    stock = StockService.create_stock(
-                        stock_code=stock_info['code'],
-                        stock_name=stock_info['name']
-                    )
-                    
-                    if stock:
-                        success_count += 1
-                        logger.debug(f"주식 추가 완료: {stock_info['code']} {stock_info['name']}")
-                    
-                except Exception as e:
-                    logger.error(f"주식 추가 실패: {stock_info['code']} {stock_info['name']}, 오류: {e}")
-                    continue
+            # DB에서 주식 목록 조회
+            stocks = StockService.get_all_stocks()
             
-            logger.info(f"주식 목록 초기화 완료: {success_count}개 추가")
-            return True
+            if stocks:
+                logger.info(f"DB에서 {len(stocks)}개의 주식 목록을 확인했습니다.")
+                return True
+            else:
+                logger.warning("DB에 등록된 주식이 없습니다. 주식 목록 관리 화면에서 주식을 등록해 주세요.")
+                return False
             
         except Exception as e:
             logger.error(f"주식 목록 초기화 실패: {e}")
             return False
     
     @staticmethod
-    def collect_and_save_trading_data(stock_code: str, stock_name: str, years: int = 3) -> bool:
+    def fetch_stock_data(stock_code: str, years: int = 3, max_pages: int = 10) -> Optional[pd.DataFrame]:
         """
-        특정 주식의 거래 데이터를 크롤링하여 DB에 저장
+        특정 주식의 외국인/기관 거래 데이터를 크롤링 (페이지네이션 지원)
         
         Args:
             stock_code (str): 주식 코드
-            stock_name (str): 주식명
             years (int): 수집할 기간 (년 단위)
+            max_pages (int): 최대 페이지 수
             
         Returns:
-            bool: 성공 여부
+            Optional[pd.DataFrame]: 수집된 데이터 또는 None
+        """
+        logger.info(f"=== 데이터 수집 시작: {stock_code} (최대 {max_pages}페이지, {years}년치) ===")
+        
+        all_data_list = []
+        cutoff_date = datetime.now() - timedelta(days=years * 365)
+        
+        # 대용량 수집 시 경고
+        if max_pages >= 30:
+            logger.warning(f"대용량 수집 모드: {stock_code} - {max_pages}페이지, 예상 시간 {max_pages * 2}초")
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
+        
+        for page in range(1, max_pages + 1):
+            try:
+                # 페이지별 URL 구성
+                url = f"https://finance.naver.com/item/frgn.naver?code={stock_code}&page={page}"
+                logger.info(f"페이지 {page} 데이터 요청: {url}")
+                
+                response = requests.get(url, headers=headers, timeout=10)
+                response.raise_for_status()
+                
+                # HTML 파싱
+                soup = BeautifulSoup(response.content, 'html.parser')
+                
+                # 모든 테이블 검사하여 데이터 테이블 찾기
+                all_tables = soup.find_all('table')
+                logger.info(f"페이지 {page}: 총 {len(all_tables)}개 테이블 발견")
+                
+                data_table = None
+                
+                # 각 테이블을 검사하여 날짜 데이터가 있는 테이블 찾기
+                for i, table in enumerate(all_tables):
+                    rows = table.find_all('tr')
+                    logger.info(f"페이지 {page} 테이블 {i}: {len(rows)}개 행")
+                    
+                    # 충분한 행이 있는 테이블만 검사
+                    if len(rows) < 5:
+                        continue
+                    
+                    # 첫 번째 행에서 날짜 패턴 찾기
+                    for row in rows[:10]:  # 처음 10개 행만 검사
+                        cols = row.find_all(['td', 'th'])
+                        if len(cols) > 0:
+                            first_col_text = cols[0].get_text(strip=True)
+                            # 날짜 패턴 확인 (YYYY.MM.DD 형식)
+                            if re.match(r'\d{4}\.\d{2}\.\d{2}', first_col_text):
+                                data_table = table
+                                logger.info(f"페이지 {page}: 날짜 데이터 테이블 발견 (테이블 {i})")
+                                break
+                    
+                    if data_table:
+                        break
+                
+                if not data_table:
+                    logger.warning(f"페이지 {page}: 날짜 데이터가 있는 테이블을 찾을 수 없음")
+                    # 가장 큰 테이블 사용
+                    if all_tables:
+                        data_table = max(all_tables, key=lambda t: len(t.find_all('tr')))
+                        logger.info(f"페이지 {page}: 가장 큰 테이블 사용 ({len(data_table.find_all('tr'))}개 행)")
+                    else:
+                        logger.warning(f"페이지 {page}: 테이블을 찾을 수 없음, 다음 페이지로 이동")
+                        continue
+                
+                # 데이터 추출
+                rows = data_table.find_all('tr')
+                logger.info(f"페이지 {page}: 선택된 테이블 행 수: {len(rows)}")
+                
+                page_data_list = []
+                found_data_in_page = False
+                
+                # 모든 행을 검사하여 데이터 추출
+                for i, row in enumerate(rows):
+                    cols = row.find_all(['td', 'th'])
+                    
+                    if len(cols) == 0:
+                        continue
+                    
+                    try:
+                        # 첫 번째 컬럼에서 날짜 찾기
+                        date_str = cols[0].get_text(strip=True)
+                        
+                        if not date_str or '날짜' in date_str or '구분' in date_str:
+                            continue
+                        
+                        logger.debug(f"페이지 {page} 행 {i} 처리 중: '{date_str}' (컬럼 수: {len(cols)})")
+                        
+                        # 날짜 파싱 시도
+                        trade_date = None
+                        date_formats = ['%Y.%m.%d', '%Y-%m-%d', '%Y/%m/%d', '%m.%d', '%m/%d']
+                        
+                        for fmt in date_formats:
+                            try:
+                                if fmt in ['%m.%d', '%m/%d']:
+                                    # 년도가 없는 경우 현재 년도 사용
+                                    current_year = datetime.now().year
+                                    if fmt == '%m.%d':
+                                        trade_date = datetime.strptime(f"{current_year}.{date_str}", '%Y.%m.%d')
+                                    else:
+                                        trade_date = datetime.strptime(f"{current_year}/{date_str}", '%Y/%m/%d')
+                                else:
+                                    trade_date = datetime.strptime(date_str, fmt)
+                                break
+                            except:
+                                continue
+                        
+                        if not trade_date:
+                            logger.debug(f"페이지 {page}: 날짜 파싱 실패: {date_str}")
+                            continue
+                        
+                        # 기간 체크
+                        if trade_date < cutoff_date:
+                            logger.info(f"페이지 {page}: 기간 초과 데이터 발견, 수집 중단: {trade_date.strftime('%Y-%m-%d')}")
+                            # 기간을 초과한 데이터가 나오면 더 이상 페이지를 확인할 필요 없음
+                            return pd.DataFrame(all_data_list) if all_data_list else None
+                        
+                        # 컬럼 수 체크 (최소 6개 이상이어야 함 - cols[5]까지 접근하므로)
+                        if len(cols) < 6:
+                            logger.debug(f"페이지 {page}: 컬럼 수 부족: {len(cols)}")
+                            continue
+                        
+                        # 데이터 추출 (실제 네이버 금융 테이블 구조에 맞게 수정)
+                        try:
+                            # 종가 (보통 2번째 컬럼)
+                            close_price_text = cols[1].get_text(strip=True).replace(',', '').replace('+', '').replace('--', '0')
+                            close_price = int(close_price_text) if close_price_text and close_price_text.isdigit() else 0
+                            
+                            # 실제 네이버 금융 구조에 맞게 수정:
+                            # cols[4]: 기관 순매수
+                            # cols[5]: 외국인 순매수
+                            # 누적 데이터는 크롤링에서 수집되지 않음 (나중에 계산으로 처리)
+                            
+                            # 기관 순매수 (5번째 컬럼)
+                            institution_net_text = cols[4].get_text(strip=True).replace(',', '').replace('+', '').replace('--', '0')
+                            institution_net = int(institution_net_text) if institution_net_text and institution_net_text.lstrip('-').isdigit() else 0
+
+                            # 외국인 순매수 (6번째 컬럼)  
+                            foreigner_net_text = cols[5].get_text(strip=True).replace(',', '').replace('+', '').replace('--', '0')
+                            foreigner_net = int(foreigner_net_text) if foreigner_net_text and foreigner_net_text.lstrip('-').isdigit() else 0
+
+                            # 누적 데이터는 크롤링에서 수집하지 않음 (기본값 0으로 설정)
+                            # 나중에 별도 계산 로직으로 채워넣을 예정
+                            institution_accum = 0
+                            foreigner_accum = 0
+
+                            data_row = {
+                                'trade_date': trade_date.date(),
+                                'close_price': close_price,
+                                'institution_net_buy': institution_net,
+                                'foreigner_net_buy': foreigner_net,
+                                'institution_accum': institution_accum,  # 크롤링에서는 0으로 설정
+                                'foreigner_accum': foreigner_accum        # 크롤링에서는 0으로 설정
+                            }
+                            
+                            page_data_list.append(data_row)
+                            found_data_in_page = True
+                            logger.debug(f"페이지 {page}: 데이터 추출 성공 - {trade_date.strftime('%Y-%m-%d')}")
+                            
+                        except (ValueError, IndexError) as e:
+                            logger.debug(f"페이지 {page}: 데이터 파싱 오류 - {e}")
+                            continue
+                            
+                    except Exception as e:
+                        logger.debug(f"페이지 {page} 행 {i} 처리 오류: {e}")
+                        continue
+                
+                # 페이지에서 데이터를 찾았으면 전체 리스트에 추가
+                if page_data_list:
+                    all_data_list.extend(page_data_list)
+                    logger.info(f"페이지 {page}: {len(page_data_list)}건의 데이터 추출 완료")
+                else:
+                    logger.info(f"페이지 {page}: 추출된 데이터가 없음")
+                    # 연속으로 데이터가 없으면 더 이상 페이지를 확인하지 않음
+                    if not found_data_in_page:
+                        logger.info(f"페이지 {page}에서 데이터가 없으므로 수집 중단")
+                        break
+                
+            except requests.RequestException as e:
+                logger.error(f"페이지 {page} 요청 오류: {e}")
+                continue
+            except Exception as e:
+                logger.error(f"페이지 {page} 처리 오류: {e}")
+                continue
+        
+        if not all_data_list:
+            logger.warning(f"전체 페이지에서 추출된 데이터가 없음: {stock_code}")
+            return None
+        
+        # DataFrame 생성
+        df = pd.DataFrame(all_data_list)
+        
+        # 중복 제거 (같은 날짜의 데이터가 있을 수 있음)
+        df = df.drop_duplicates(subset=['trade_date'], keep='first')
+        
+        # 날짜순 정렬 (최신순)
+        df = df.sort_values('trade_date', ascending=False)
+        
+        logger.info(f"데이터 수집 완료: {stock_code}, 총 {len(df)}건 (중복 제거 후)")
+        
+        return df
+    
+    @staticmethod
+    def save_trading_data(stock_code: str, stock_name: str, df: pd.DataFrame) -> bool:
+        """
+        거래 데이터를 데이터베이스에 저장 (효율적인 배치 처리)
+        
+        Args:
+            stock_code (str): 주식 코드
+            stock_name (str): 주식 이름
+            df (pd.DataFrame): 거래 데이터
+            
+        Returns:
+            bool: 저장 성공 여부
         """
         try:
-            logger.info(f"거래 데이터 수집 시작: {stock_code} {stock_name}")
+            # 1단계: 새로운 데이터만 미리 필터링
+            new_data_list = []
             
-            # 데이터 크롤링
-            trading_data = DataCollectorService.crawl_trading_data(stock_code, years)
-            
-            if not trading_data:
-                logger.warning(f"수집된 데이터가 없습니다: {stock_code}")
-                return False
-            
-            # DB에 저장
-            success_count = 0
-            for data in trading_data:
+            for _, row in df.iterrows():
+                # trade_date를 문자열로 변환
+                trade_date_str = row['trade_date'].strftime('%Y-%m-%d') if hasattr(row['trade_date'], 'strftime') else str(row['trade_date'])
+                
+                # 기존 데이터 확인
+                from backend.models.trading import StockInvestorTrading
+                existing_data = StockInvestorTrading.query.filter_by(
+                    stock_code=stock_code,
+                    trade_date=trade_date_str
+                ).first()
+
+                if existing_data:
+                    logger.debug(f"기존 데이터 건너뛰기: {stock_code} {trade_date_str}")
+                    continue
+
+                # 새로운 데이터 생성 (아직 DB에 저장하지 않음)
                 try:
-                    # 중복 데이터 체크 (같은 주식 코드 + 같은 날짜)
-                    existing_data = TradingService.get_trading_data_by_stock_code(stock_code)
-                    existing_dates = {d.trade_date for d in existing_data}
-                    
-                    if data['trade_date'] in existing_dates:
-                        continue  # 이미 존재하는 데이터 스킵
-                    
-                    # 새로운 거래 데이터 저장
-                    trading_record = TradingService.create_trading_data(
+                    trading_data = TradingService.create_trading_data_batch(
                         stock_code=stock_code,
                         stock_name=stock_name,
-                        trade_date=data['trade_date'],
-                        close_price=data['close_price'],
-                        institution_net_buy=data['institution_net_buy'],
-                        foreigner_net_buy=data['foreigner_net_buy']
+                        trade_date=trade_date_str,
+                        close_price=row['close_price'],
+                        institution_net_buy=row['institution_net_buy'],
+                        foreigner_net_buy=row['foreigner_net_buy'],
+                        institution_accum=row['institution_accum'],
+                        foreigner_accum=row['foreigner_accum']
                     )
                     
-                    if trading_record:
-                        success_count += 1
+                    if trading_data:
+                        new_data_list.append(trading_data)
+                        logger.debug(f"새 데이터 준비: {stock_code} {trade_date_str}")
                         
                 except Exception as e:
-                    logger.error(f"거래 데이터 저장 실패: {stock_code} {data['trade_date']}, 오류: {e}")
+                    logger.warning(f"데이터 생성 실패: {stock_code} {trade_date_str}, 오류: {e}")
                     continue
+
+            # 2단계: 새로운 데이터가 없으면 종료
+            if not new_data_list:
+                logger.info(f"저장할 새 데이터가 없음: {stock_code}")
+                return True  # 성공으로 처리 (이미 모든 데이터가 존재)
+
+            # 3단계: 새로운 데이터를 작은 배치로 나누어 저장
+            max_retries = 3
+            retry_delay = 1
+            batch_size = 50  # 배치 크기를 50으로 제한
             
-            logger.info(f"거래 데이터 저장 완료: {stock_code}, {success_count}개 저장")
-            return success_count > 0
+            total_saved = 0
+            
+            # 데이터를 배치 단위로 나누어 처리
+            for i in range(0, len(new_data_list), batch_size):
+                batch_data = new_data_list[i:i + batch_size]
+                batch_num = (i // batch_size) + 1
+                total_batches = (len(new_data_list) + batch_size - 1) // batch_size
+                
+                logger.info(f"배치 {batch_num}/{total_batches} 저장 시작: {stock_code}, {len(batch_data)}건")
+                
+                # 배치별 재시도 로직
+                for attempt in range(max_retries):
+                    try:
+                        # 현재 배치 데이터를 세션에 추가
+                        for trading_data in batch_data:
+                            db.session.add(trading_data)
+                        
+                        # 배치 커밋
+                        db.session.commit()
+                        total_saved += len(batch_data)
+                        
+                        logger.info(f"배치 {batch_num}/{total_batches} 저장 성공: {stock_code}, {len(batch_data)}건")
+                        break  # 성공하면 다음 배치로
+                        
+                    except Exception as e:
+                        db.session.rollback()
+                        
+                        if "database is locked" in str(e).lower() and attempt < max_retries - 1:
+                            logger.warning(f"배치 {batch_num} 데이터베이스 잠금, {retry_delay}초 후 재시도 ({attempt + 1}/{max_retries}): {stock_code}")
+                            time.sleep(retry_delay)
+                            retry_delay *= 1.5  # 더 완만한 백오프
+                            continue
+                        else:
+                            logger.error(f"배치 {batch_num} 저장 실패: {stock_code}, 시도 횟수: {attempt + 1}, 오류: {e}")
+                            # 실패한 배치가 있어도 다음 배치 계속 진행
+                            break
+                
+                # 배치 간 잠시 대기 (데이터베이스 부하 감소)
+                if i + batch_size < len(new_data_list):
+                    time.sleep(0.1)
+            
+            logger.info(f"전체 데이터 저장 완료: {stock_code}, {total_saved}/{len(new_data_list)}건 저장")
+            return total_saved > 0
             
         except Exception as e:
-            logger.error(f"거래 데이터 수집 실패: {stock_code}, 오류: {e}")
+            logger.error(f"데이터 저장 중 예외 발생: {stock_code}, 오류: {e}")
             return False
     
     @staticmethod
-    def collect_all_stocks_data(years: int = 3) -> Dict[str, any]:
+    def collect_and_save_trading_data(stock_code: str, stock_name: str, years: int = 3, max_pages: int = 10) -> bool:
         """
-        모든 주식의 거래 데이터를 수집
+        특정 주식의 거래 데이터를 수집하고 저장
+        
+        Args:
+            stock_code (str): 주식 코드
+            stock_name (str): 주식 이름
+            years (int): 수집할 기간 (년 단위)
+            max_pages (int): 최대 페이지 수
+            
+        Returns:
+            bool: 수집 및 저장 성공 여부
+        """
+        try:
+            # 1. 데이터 크롤링 (페이지네이션 지원)
+            df = DataCollectorService.fetch_stock_data(stock_code, years, max_pages)
+            if df is None or df.empty:
+                logger.warning(f"수집할 데이터가 없음: {stock_code}")
+                return False
+            
+            # 2. 데이터베이스 저장
+            success = DataCollectorService.save_trading_data(stock_code, stock_name, df)
+            
+            # 트렌드 분석은 별도의 API에서 수행하므로 여기서는 제거
+            logger.info(f"데이터 저장 완료: {stock_code}")
+            
+            return success
+            
+        except Exception as e:
+            logger.error(f"데이터 수집 및 저장 실패: {stock_code}, {e}")
+            return False
+    
+    @staticmethod  
+    def collect_all_stocks_data(years: int = 3, max_pages: int = 10) -> Dict[str, any]:
+        """
+        모든 주식의 거래 데이터를 수집 (Flask-Executor 방식)
         
         Args:
             years (int): 수집할 기간 (년 단위)
+            max_pages (int): 최대 페이지 수
             
         Returns:
             Dict: 수집 결과 통계
         """
-        logger.info(f"전체 주식 데이터 수집 시작 ({years}년)")
+        logger.info(f"전체 주식 데이터 수집 시작 ({years}년, 최대 {max_pages}페이지)")
         
         results = {
             'total_stocks': 0,
@@ -335,12 +475,15 @@ class DataCollectorService:
         }
         
         try:
-            # 1. 주식 목록 초기화
-            DataCollectorService.initialize_stock_list()
-            
-            # 2. DB에서 주식 목록 조회
+            # 1. DB에서 주식 목록 조회
             stocks = StockService.get_all_stocks()
             results['total_stocks'] = len(stocks)
+            
+            # 주식이 없으면 경고
+            if not stocks:
+                logger.warning("DB에 등록된 주식이 없습니다. 데이터 수집을 위해 먼저 주식을 등록해 주세요.")
+                results['error'] = "DB에 등록된 주식이 없습니다."
+                return results
             
             # 3. 각 주식별 데이터 수집
             for stock in stocks:
@@ -348,7 +491,7 @@ class DataCollectorService:
                     logger.info(f"데이터 수집 중: {stock.stock_code} {stock.stock_name}")
                     
                     success = DataCollectorService.collect_and_save_trading_data(
-                        stock.stock_code, stock.stock_name, years
+                        stock.stock_code, stock.stock_name, years, max_pages
                     )
                     
                     if success:
@@ -376,35 +519,253 @@ class DataCollectorService:
             results['error'] = str(e)
             return results
 
-
-# 독립 실행용 함수
-def main():
-    """메인 실행 함수"""
-    import logging
+    @staticmethod
+    def calculate_accumulated_data(stock_code: str) -> bool:
+        """
+        특정 주식의 누적 매수량 데이터를 계산하여 업데이트
+        (초기값 0, 기존 데이터 초기화 후 재계산)
+        
+        Args:
+            stock_code (str): 주식 코드
+            
+        Returns:
+            bool: 계산 성공 여부
+        """
+        try:
+            from backend.models.trading import StockInvestorTrading
+            
+            logger.info(f"누적 데이터 계산 시작: {stock_code}")
+            
+            # 해당 주식의 모든 거래 데이터를 날짜순으로 조회 (오래된 것부터)
+            trading_data_list = StockInvestorTrading.query.filter_by(
+                stock_code=stock_code
+            ).order_by(StockInvestorTrading.trade_date.asc()).all()
+            
+            if not trading_data_list:
+                logger.info(f"거래 데이터가 없음: {stock_code}")
+                return True
+            
+            # 1단계: 기존 누적값을 모두 0으로 초기화
+            logger.info(f"기존 누적값 초기화: {stock_code}")
+            for trading_data in trading_data_list:
+                trading_data.institution_accum = 0
+                trading_data.foreigner_accum = 0
+            
+            # 2단계: 초기값을 0으로 시작하여 누적 계산
+            institution_accum = 0  # 초기값 0
+            foreigner_accum = 0    # 초기값 0
+            
+            updated_count = 0
+            
+            # 각 거래 데이터의 누적값 계산 (과거부터 최신까지)
+            for trading_data in trading_data_list:
+                # 순매수량을 누적값에 더함
+                institution_accum += trading_data.institution_net_buy or 0
+                foreigner_accum += trading_data.foreigner_net_buy or 0
+                
+                # 누적값 업데이트 (그날의 누적값이 됨)
+                trading_data.institution_accum = institution_accum
+                trading_data.foreigner_accum = foreigner_accum
+                
+                updated_count += 1
+                
+                logger.debug(f"{trading_data.trade_date}: 기관순매수={trading_data.institution_net_buy}, 기관누적={institution_accum}, 외국인순매수={trading_data.foreigner_net_buy}, 외국인누적={foreigner_accum}")
+            
+            # 배치로 저장
+            db.session.commit()
+            
+            logger.info(f"누적 데이터 계산 완료: {stock_code}, {updated_count}건 업데이트 (초기값 0부터 시작)")
+            return True
+            
+        except Exception as e:
+            logger.error(f"누적 데이터 계산 실패: {stock_code}, 오류: {e}")
+            db.session.rollback()
+            return False
     
-    # 로깅 설정
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
+    @staticmethod
+    def calculate_all_accumulated_data() -> Dict[str, any]:
+        """
+        모든 주식의 누적 매수량 데이터를 계산
+        
+        Returns:
+            Dict: 계산 결과 통계
+        """
+        try:
+            from backend.services.stock_service import StockService
+            
+            logger.info("전체 주식 누적 데이터 계산 시작")
+            
+            results = {
+                'total_stocks': 0,
+                'success_stocks': 0,
+                'failed_stocks': 0,
+                'failed_list': []
+            }
+            
+            # 모든 주식 조회
+            stocks = StockService.get_all_stocks()
+            results['total_stocks'] = len(stocks)
+            
+            if not stocks:
+                logger.warning("DB에 등록된 주식이 없습니다.")
+                results['error'] = "DB에 등록된 주식이 없습니다."
+                return results
+            
+            # 각 주식별 누적 데이터 계산
+            for stock in stocks:
+                try:
+                    success = DataCollectorService.calculate_accumulated_data(stock.stock_code)
+                    
+                    if success:
+                        results['success_stocks'] += 1
+                    else:
+                        results['failed_stocks'] += 1
+                        results['failed_list'].append(f"{stock.stock_code} {stock.stock_name}")
+                        
+                except Exception as e:
+                    results['failed_stocks'] += 1
+                    results['failed_list'].append(f"{stock.stock_code} {stock.stock_name}: {str(e)}")
+                    logger.error(f"누적 데이터 계산 중 오류: {stock.stock_code}, {e}")
+                    continue
+            
+            logger.info(f"전체 누적 데이터 계산 완료: 성공 {results['success_stocks']}개, 실패 {results['failed_stocks']}개")
+            return results
+            
+        except Exception as e:
+            logger.error(f"전체 누적 데이터 계산 중 오류: {e}")
+            return {
+                'total_stocks': 0,
+                'success_stocks': 0,
+                'failed_stocks': 0,
+                'failed_list': [],
+                'error': str(e)
+            }
     
-    # 전체 주식 데이터 수집 실행
-    results = DataCollectorService.collect_all_stocks_data(years=3)
+    @staticmethod
+    def clear_trading_data_by_stock(stock_code: str) -> bool:
+        """
+        특정 주식의 거래 데이터를 모두 삭제
+        
+        Args:
+            stock_code (str): 주식 코드
+            
+        Returns:
+            bool: 삭제 성공 여부
+        """
+        try:
+            from backend.models.trading import StockInvestorTrading
+            
+            logger.info(f"거래 데이터 초기화 시작: {stock_code}")
+            
+            # 해당 주식의 모든 거래 데이터 조회
+            trading_data_count = StockInvestorTrading.query.filter_by(stock_code=stock_code).count()
+            
+            if trading_data_count == 0:
+                logger.info(f"삭제할 거래 데이터가 없음: {stock_code}")
+                return True
+            
+            # 해당 주식의 모든 거래 데이터 삭제
+            deleted_count = StockInvestorTrading.query.filter_by(stock_code=stock_code).delete()
+            db.session.commit()
+            
+            logger.info(f"거래 데이터 초기화 완료: {stock_code}, {deleted_count}건 삭제")
+            return True
+            
+        except Exception as e:
+            logger.error(f"거래 데이터 초기화 실패: {stock_code}, 오류: {e}")
+            db.session.rollback()
+            return False
     
-    print("\n" + "="*50)
-    print("데이터 수집 결과")
-    print("="*50)
-    print(f"전체 주식 수: {results['total_stocks']}")
-    print(f"성공: {results['success_stocks']}")
-    print(f"실패: {results['failed_stocks']}")
+    @staticmethod
+    def clear_all_trading_data() -> Dict[str, any]:
+        """
+        모든 거래 데이터를 삭제
+        
+        Returns:
+            Dict: 삭제 결과 통계
+        """
+        try:
+            from backend.models.trading import StockInvestorTrading
+            
+            logger.info("전체 거래 데이터 초기화 시작")
+            
+            # 전체 거래 데이터 개수 확인
+            total_count = StockInvestorTrading.query.count()
+            
+            if total_count == 0:
+                logger.info("삭제할 거래 데이터가 없습니다.")
+                return {
+                    'deleted_count': 0,
+                    'message': '삭제할 거래 데이터가 없습니다.'
+                }
+            
+            # 모든 거래 데이터 삭제
+            deleted_count = StockInvestorTrading.query.delete()
+            db.session.commit()
+            
+            logger.info(f"전체 거래 데이터 초기화 완료: {deleted_count}건 삭제")
+            
+            return {
+                'deleted_count': deleted_count,
+                'message': f'총 {deleted_count}건의 거래 데이터가 삭제되었습니다.'
+            }
+            
+        except Exception as e:
+            logger.error(f"전체 거래 데이터 초기화 실패: {e}")
+            db.session.rollback()
+            return {
+                'deleted_count': 0,
+                'error': str(e)
+            }
     
-    if results['failed_list']:
-        print("\n실패 목록:")
-        for failed in results['failed_list']:
-            print(f"  - {failed}")
-    
-    print("="*50)
-
-
-if __name__ == "__main__":
-    main() 
+    @staticmethod
+    def clear_trading_data_by_stocks(stock_codes: List[str]) -> Dict[str, any]:
+        """
+        여러 주식의 거래 데이터를 삭제
+        
+        Args:
+            stock_codes (List[str]): 주식 코드 목록
+            
+        Returns:
+            Dict: 삭제 결과 통계
+        """
+        try:
+            logger.info(f"선택 종목 거래 데이터 초기화 시작: {len(stock_codes)}개 종목")
+            
+            results = {
+                'total_stocks': len(stock_codes),
+                'success_stocks': 0,
+                'failed_stocks': 0,
+                'failed_list': [],
+                'total_deleted': 0
+            }
+            
+            for stock_code in stock_codes:
+                try:
+                    success = DataCollectorService.clear_trading_data_by_stock(stock_code)
+                    
+                    if success:
+                        results['success_stocks'] += 1
+                    else:
+                        results['failed_stocks'] += 1
+                        results['failed_list'].append(stock_code)
+                        
+                except Exception as e:
+                    results['failed_stocks'] += 1
+                    results['failed_list'].append(f"{stock_code}: {str(e)}")
+                    logger.error(f"종목별 거래 데이터 초기화 중 오류: {stock_code}, {e}")
+                    continue
+            
+            logger.info(f"선택 종목 거래 데이터 초기화 완료: 성공 {results['success_stocks']}개, 실패 {results['failed_stocks']}개")
+            return results
+            
+        except Exception as e:
+            logger.error(f"선택 종목 거래 데이터 초기화 중 오류: {e}")
+            return {
+                'total_stocks': len(stock_codes),
+                'success_stocks': 0,
+                'failed_stocks': len(stock_codes),
+                'failed_list': stock_codes,
+                'total_deleted': 0,
+                'error': str(e)
+            }

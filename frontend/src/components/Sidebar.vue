@@ -1,17 +1,62 @@
 <template>
-  <nav class="sidebar">
-    <ul>
-      <li :class="{active: $route.path==='/sample'}">
-        <router-link to="/sample">📊 Sample</router-link>
-      </li>
-      <li :class="{active: $route.path==='/sample2'}">
-        <router-link to="/sample2">📈 Sample2</router-link>
-      </li>
-      <li :class="{active: $route.path==='/collector'}">
-        <router-link to="/collector">🔄 데이터 수집</router-link>
-      </li>
-    </ul>
-  </nav>
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <h3>📊 Stock Analysis</h3>
+    </div>
+    
+    <nav class="sidebar-nav">
+      <ul class="nav-list">
+        <li class="nav-item">
+          <router-link to="/sample" class="nav-link" :class="{ active: $route.path === '/sample' }">
+            <span class="nav-icon">📝</span>
+            <span class="nav-text">Sample</span>
+          </router-link>
+        </li>
+        
+        <li class="nav-item">
+          <router-link to="/sample2" class="nav-link" :class="{ active: $route.path === '/sample2' }">
+            <span class="nav-icon">📋</span>
+            <span class="nav-text">Sample2</span>
+          </router-link>
+        </li>
+        
+        <li class="nav-item">
+          <router-link to="/stock" class="nav-link" :class="{ active: $route.path === '/stock' }">
+            <span class="nav-icon">📊</span>
+            <span class="nav-text">주식 목록</span>
+          </router-link>
+        </li>
+        
+        <li class="nav-item">
+          <router-link to="/trading" class="nav-link" :class="{ active: $route.path === '/trading' }">
+            <span class="nav-icon">📈</span>
+            <span class="nav-text">거래 데이터</span>
+          </router-link>
+        </li>
+        
+        <li class="nav-item">
+          <router-link to="/collector" class="nav-link" :class="{ active: $route.path === '/collector' }">
+            <span class="nav-icon">🔄</span>
+            <span class="nav-text">데이터 수집</span>
+          </router-link>
+        </li>
+        
+        <li class="nav-item">
+          <router-link to="/api-test" class="nav-link" :class="{ active: $route.path === '/api-test' }">
+            <span class="nav-icon">🧪</span>
+            <span class="nav-text">API 테스트</span>
+          </router-link>
+        </li>
+        
+        <li class="nav-item">
+          <router-link to="/settings" class="nav-link" :class="{ active: $route.path === '/settings' }">
+            <span class="nav-icon">⚙️</span>
+            <span class="nav-text">설정</span>
+          </router-link>
+        </li>
+      </ul>
+    </nav>
+  </div>
 </template>
 
 <script>

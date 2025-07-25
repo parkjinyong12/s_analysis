@@ -45,7 +45,7 @@ class User(db.Model):
 
     def __repr__(self) -> str:
         """객체 문자열 표현"""
-        return f'<User {self.username}>'
+        return f'<User {self.username}>' 
     
     def to_dict(self) -> Dict[str, Any]:
         """

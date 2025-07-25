@@ -505,30 +505,41 @@ def search_trading_data():
     거래 데이터 검색
     
     Query Parameters:
-        name (str): 검색할 주식명 (부분 일치)
+        query (str): 검색할 주식 코드 또는 주식명 (부분 일치)
+        name (str): 검색할 주식명 (부분 일치) - 하위 호환성을 위해 유지
         
     Returns:
         JSON: 검색된 거래 데이터 목록
         
     Example:
-        GET /trading/search?name=삼성
-        Response: [{"id": 1, "stock_code": "005930", "stock_name": "삼성전자", "trade_date": "2024-01-01", ...}]
+        GET /trading/search?query=삼성바이오로직스
+        GET /trading/search?query=207940
+        GET /trading/search?name=삼성  (기존 방식)
+        Response: [{"id": 1, "stock_code": "207940", "stock_name": "삼성바이오로직스", "trade_date": "2024-01-01", ...}]
     """
     try:
+        # 새로운 query 파라미터 우선, 없으면 기존 name 파라미터 사용
+        query = request.args.get('query', '').strip()
         name = request.args.get('name', '').strip()
         
-        if not name:
+        search_term = query or name
+        
+        if not search_term:
             return jsonify({
-                'error': '검색할 주식명을 입력해주세요.',
-                'parameters': ['name']
+                'error': '검색할 주식 코드 또는 주식명을 입력해주세요.',
+                'parameters': ['query', 'name']
             }), 400
         
-        trading_data = TradingService.search_trading_data_by_name(name)
+        # query 파라미터가 있으면 코드/이름 모두 검색, name 파라미터면 이름만 검색
+        if query:
+            trading_data = TradingService.search_trading_data_by_query(search_term)
+        else:
+            trading_data = TradingService.search_trading_data_by_name(search_term)
         
         return jsonify([data.to_dict() for data in trading_data]), 200
         
     except Exception as e:
-        logger.error(f"거래 데이터 검색 실패 (name: {name}): {str(e)}")
+        logger.error(f"거래 데이터 검색 실패 (query: {search_term}): {str(e)}")
         return jsonify({
             'error': '거래 데이터를 검색하는데 실패했습니다.',
             'message': str(e)

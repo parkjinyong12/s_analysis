@@ -1,7 +1,11 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import Sample from '@/features/sample/SampleBoard.vue'
-import Sample2 from '@/features/sample2/Sample2Board.vue'
-import DataCollector from '@/features/collector/DataCollector.vue'
+import SampleBoard from '../features/sample/SampleBoard.vue'
+import Sample2Board from '../features/sample2/Sample2Board.vue'
+import StockBoard from '../features/stock/StockBoard.vue'
+import TradingBoard from '../features/trading/TradingBoard.vue'
+import DataCollector from '../features/collector/DataCollector.vue'
+import ApiTest from '../features/api-test/ApiTest.vue'
+import ApiSettings from '../features/settings/ApiSettings.vue'
 
 const routes = [
   {
@@ -11,17 +15,37 @@ const routes = [
   {
     path: '/sample',
     name: 'Sample',
-    component: Sample
+    component: SampleBoard
   },
   {
     path: '/sample2',
     name: 'Sample2',
-    component: Sample2
+    component: Sample2Board
+  },
+  {
+    path: '/stock',
+    name: 'Stock',
+    component: StockBoard
+  },
+  {
+    path: '/trading',
+    name: 'Trading',
+    component: TradingBoard
   },
   {
     path: '/collector',
     name: 'DataCollector',
     component: DataCollector
+  },
+  {
+    path: '/api-test',
+    name: 'ApiTest',
+    component: ApiTest
+  },
+  {
+    path: '/settings',
+    name: 'Settings',
+    component: ApiSettings
   }
 ]
 

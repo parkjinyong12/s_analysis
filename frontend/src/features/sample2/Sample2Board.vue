@@ -2,7 +2,7 @@
   <div class="sample-board">
     <!-- 헤더 -->
     <header class="board-header">
-      <h2>Sample2 게시판</h2>
+    <h2>Sample2 게시판</h2>
       <p class="board-description">샘플2 데이터를 관리할 수 있는 CRUD 게시판입니다.</p>
     </header>
 
@@ -42,7 +42,7 @@
             취소
           </button>
         </div>
-      </form>
+    </form>
     </section>
 
     <!-- 에러 메시지 -->
@@ -65,18 +65,18 @@
 
       <!-- 데이터 테이블 -->
       <table v-else class="sample-table">
-        <thead>
-          <tr>
-            <th>ID</th>
-            <th>이름</th>
-            <th>설명</th>
-            <th>생성일</th>
-            <th>액션</th>
-          </tr>
-        </thead>
-        <tbody>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>이름</th>
+          <th>설명</th>
+          <th>생성일</th>
+          <th>액션</th>
+        </tr>
+      </thead>
+      <tbody>
           <tr v-for="sample in samples" :key="sample.id" class="table-row">
-            <td>{{ sample.id }}</td>
+          <td>{{ sample.id }}</td>
             <td class="name-cell">{{ sample.name }}</td>
             <td class="description-cell">{{ sample.description || '-' }}</td>
             <td class="date-cell">{{ formatDate(sample.created_at) }}</td>
@@ -97,16 +97,16 @@
               >
                 삭제
               </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+          </td>
+        </tr>
+      </tbody>
+    </table>
     </section>
   </div>
 </template>
 
 <script>
-import axios from 'axios';
+import { api, API_ENDPOINTS } from '@/config/api';
 
 /**
  * Sample2 CRUD 게시판 컴포넌트
@@ -131,8 +131,7 @@ export default {
       isLoading: false,
       errorMessage: '',
       
-      // API 설정
-      apiUrl: 'http://127.0.0.1:5000/samples',
+      // API 설정 (더 이상 필요 없음 - 중앙화된 설정 사용)
     };
   },
   
@@ -152,7 +151,7 @@ export default {
         this.isLoading = true;
         this.clearError();
         
-        const response = await axios.get(`${this.apiUrl}/`);
+        const response = await api.get(`${API_ENDPOINTS.SAMPLES}/`);
         this.samples = response.data || [];
         
       } catch (error) {
@@ -181,13 +180,13 @@ export default {
           description: this.form.description.trim() || null
         };
 
-        if (this.form.id) {
-          // 수정
-          await axios.put(`${this.apiUrl}/${this.form.id}`, requestData);
-        } else {
-          // 생성
-          await axios.post(`${this.apiUrl}/`, requestData);
-        }
+      if (this.form.id) {
+        // 수정
+           await api.put(`${API_ENDPOINTS.SAMPLES}/${this.form.id}`, requestData);
+      } else {
+           // 생성
+           await api.post(`${API_ENDPOINTS.SAMPLES}/`, requestData);
+         }
 
         // 성공 후 처리
         this.resetForm();
@@ -242,13 +241,13 @@ export default {
         this.isLoading = true;
         this.clearError();
         
-        await axios.delete(`${this.apiUrl}/${sample.id}`);
+                 await api.delete(`${API_ENDPOINTS.SAMPLES}/${sample.id}`);
         await this.loadSamples();
         
         // 수정 중인 항목이 삭제된 경우 폼 초기화
         if (this.form.id === sample.id) {
           this.resetForm();
-        }
+      }
         
       } catch (error) {
         console.error('샘플2 삭제 실패:', error);
@@ -526,7 +525,7 @@ export default {
   
   .form-input {
     min-width: unset;
-  }
+}
   
   .sample-table {
     font-size: 14px;
