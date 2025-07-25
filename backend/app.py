@@ -21,6 +21,9 @@ def create_app():
     from backend.views.trading import trading_bp
     app.register_blueprint(trading_bp)
     
+    from backend.views.data_collector import collector_bp
+    app.register_blueprint(collector_bp)
+    
     return app
 
 if __name__ == "__main__":

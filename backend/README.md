@@ -21,7 +21,10 @@ backend/
 │   ├── user_service.py
 │   ├── sample_service.py
 │   ├── stock_service.py  # 주식 비즈니스 로직
-│   └── trading_service.py # 주식 거래 비즈니스 로직
+│   ├── trading_service.py # 주식 거래 비즈니스 로직
+│   └── data_collector.py # 데이터 수집 서비스
+├── scripts/              # 실행 스크립트
+│   └── collect_data.py   # 데이터 수집 스크립트
 ├── sql/                  # SQL 스크립트
 │   └── init_tables.sql   # 테이블 생성 스크립트
 └── venv/                 # 가상환경
@@ -72,7 +75,7 @@ backend\venv\Scripts\Activate
 ```
 2. 패키지 설치 (최초 1회)
 ```
-pip install flask flask_sqlalchemy flask_cors
+pip install flask flask_sqlalchemy flask_cors requests beautifulsoup4 pandas
 ```
 3. DB 초기화 (최초 1회)
 ```
@@ -88,6 +91,28 @@ python
 ```
 python app.py
 ```
+
+## 데이터 수집
+
+### 자동 데이터 수집
+네이버 금융에서 주식 거래 데이터를 자동으로 수집하여 DB에 저장합니다.
+
+```bash
+# 전체 주식 데이터 수집 (3년간)
+python backend/scripts/collect_data.py
+```
+
+### 수집되는 데이터
+- **주식 기본 정보**: 코드, 이름
+- **일별 거래 데이터**: 종가, 기관/외국인 순매수량
+- **수집 기간**: 최근 3년간 데이터
+- **대상 종목**: 시가총액 상위 50개 대형주
+
+### 수집 기능
+- **중복 방지**: 이미 존재하는 데이터는 스킵
+- **에러 처리**: 네트워크 오류, 파싱 오류 등 안전하게 처리
+- **로깅**: 수집 과정과 결과를 상세히 기록
+- **진행률 표시**: 실시간 수집 상황 모니터링
 
 ## API 엔드포인트
 
@@ -120,4 +145,20 @@ python app.py
 
 ### User CRUD (/users)
 - `GET /users/` - 전체 조회
-- `POST /users/` - 생성 
+- `POST /users/` - 생성
+
+## 사용 예시
+
+### 데이터 수집 후 API 사용
+```bash
+# 1. 데이터 수집
+python backend/scripts/collect_data.py
+
+# 2. 서버 실행
+python backend/app.py
+
+# 3. API 호출 예시
+curl http://localhost:5000/stocks/
+curl http://localhost:5000/trading/stock/005930
+curl "http://localhost:5000/trading/date-range?start_date=2024-01-01&end_date=2024-01-31"
+``` 

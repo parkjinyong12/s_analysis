@@ -3,17 +3,51 @@
     <Sidebar />
     <main class="main-content">
       <div class="content-wrapper">
-        <router-view />
+        <router-view @show-message="showMessage" />
       </div>
     </main>
+    
+    <!-- 메시지 토스트 -->
+    <div v-if="message.show" :class="['message-toast', message.type]">
+      <span>{{ message.text }}</span>
+      <button @click="hideMessage" class="close-btn">×</button>
+    </div>
   </div>
 </template>
 
 <script>
 import Sidebar from './components/Sidebar.vue'
+
 export default {
   name: 'App',
   components: { Sidebar },
+  data() {
+    return {
+      message: {
+        show: false,
+        text: '',
+        type: 'info'
+      }
+    }
+  },
+  methods: {
+    showMessage(text, type = 'info') {
+      this.message = {
+        show: true,
+        text,
+        type
+      }
+      
+      // 5초 후 자동 숨김
+      setTimeout(() => {
+        this.hideMessage()
+      }, 5000)
+    },
+    
+    hideMessage() {
+      this.message.show = false
+    }
+  }
 }
 </script>
 
@@ -40,5 +74,60 @@ export default {
   padding: 32px 24px 24px 24px;
   width: 100%;
   max-width: 900px;
+}
+
+/* 메시지 토스트 스타일 */
+.message-toast {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  padding: 12px 16px;
+  border-radius: 6px;
+  color: white;
+  font-weight: 500;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 300px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  animation: slideIn 0.3s ease-out;
+}
+
+.message-toast.success {
+  background: #4caf50;
+}
+
+.message-toast.error {
+  background: #f44336;
+}
+
+.message-toast.warning {
+  background: #ff9800;
+}
+
+.message-toast.info {
+  background: #2196f3;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  color: white;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0;
+  margin-left: auto;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
 }
 </style>

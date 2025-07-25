@@ -2,10 +2,13 @@
   <nav class="sidebar">
     <ul>
       <li :class="{active: $route.path==='/sample'}">
-        <router-link to="/sample">Sample</router-link>
+        <router-link to="/sample">📊 Sample</router-link>
       </li>
       <li :class="{active: $route.path==='/sample2'}">
-        <router-link to="/sample2">Sample2</router-link>
+        <router-link to="/sample2">📈 Sample2</router-link>
+      </li>
+      <li :class="{active: $route.path==='/collector'}">
+        <router-link to="/collector">🔄 데이터 수집</router-link>
       </li>
     </ul>
   </nav>
