@@ -13,3 +13,7 @@ class Config:
             'isolation_level': None,  # autocommit 모드
         }
     } 
+    
+    # 테스트 모드 설정
+    TESTING = os.environ.get('TESTING', 'false').lower() == 'true'
+    TEST_DATABASE_URI = 'sqlite:///' + os.path.join(os.path.dirname(__file__), 'test_app.db') 

@@ -7,6 +7,12 @@ backend/*.pyd
 backend/.Python
 backend/app.db
 backend/*.db
+backend/*.db-shm
+backend/*.db-wal
+backend/models/__pycache__/
+backend/services/__pycache__/
+backend/views/__pycache__/
+backend/utils/__pycache__/
 
 # Frontend (Vue.js/Node.js)
 frontend/node_modules/
@@ -21,6 +27,7 @@ frontend/.git/
 node_modules/
 package-lock.json
 package.json
+venv/
 
 # IDE
 .vscode/

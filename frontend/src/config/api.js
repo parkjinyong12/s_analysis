@@ -9,7 +9,7 @@ import { reactive } from 'vue';
 
 const API_CONFIG = reactive({
   // 개발 환경에서의 백엔드 서버 URL
-  BASE_URL: localStorage.getItem('api_base_url') || process.env.VUE_APP_API_BASE_URL || 'http://127.0.0.1:5000',
+  BASE_URL: localStorage.getItem('api_base_url') || process.env.VUE_APP_API_BASE_URL || 'http://127.0.0.1:5001',
   
   // 요청 타임아웃 (밀리초)
   TIMEOUT: parseInt(localStorage.getItem('api_timeout')) || 10000,
@@ -150,7 +150,7 @@ export const apiSettings = {
   
   // 설정 초기화
   resetToDefaults: () => {
-    const defaultURL = process.env.VUE_APP_API_BASE_URL || 'http://127.0.0.1:5000';
+    const defaultURL = process.env.VUE_APP_API_BASE_URL || 'http://127.0.0.1:5001';
     const defaultTimeout = 10000;
     const defaultDebug = false;
     

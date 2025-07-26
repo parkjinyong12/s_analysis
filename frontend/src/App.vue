@@ -59,11 +59,19 @@ export default {
 }
 .main-content {
   flex: 1;
-  margin-left: 160px;
+  margin-left: 180px;
   padding: 40px 0;
   display: flex;
   justify-content: center;
   align-items: flex-start;
+  transition: margin-left 0.3s ease;
+}
+
+/* 반응형 */
+@media (max-width: 768px) {
+  .main-content {
+    margin-left: 60px;
+  }
 }
 .content-wrapper {
   min-width: 700px;

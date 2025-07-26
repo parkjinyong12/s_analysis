@@ -135,7 +135,7 @@
 </template>
 
 <script>
-import axios from 'axios'
+import { api } from '@/config/api'
 
 export default {
   name: 'StockBoard',
@@ -169,7 +169,7 @@ export default {
     async loadStocks() {
       this.loading = true
       try {
-        const response = await axios.get('http://localhost:5000/stocks/')
+        const response = await api.get('/stocks/')
         this.stocks = response.data
       } catch (error) {
         console.error('주식 목록 조회 실패:', error)
@@ -195,7 +195,7 @@ export default {
           if (this.searchName.trim()) params.append('name', this.searchName.trim())
           if (this.searchCode.trim()) params.append('code', this.searchCode.trim())
           
-          const response = await axios.get(`http://localhost:5000/stocks/search?${params}`)
+          const response = await api.get(`/stocks/search?${params}`)
           this.stocks = response.data
         } catch (error) {
           console.error('주식 검색 실패:', error)
@@ -226,7 +226,7 @@ export default {
       }
 
       try {
-        await axios.delete(`http://localhost:5000/stocks/${stock.id}`)
+        await api.delete(`/stocks/${stock.id}`)
         alert('주식이 삭제되었습니다.')
         await this.loadStocks()
       } catch (error) {
@@ -241,11 +241,11 @@ export default {
       try {
         if (this.showCreateModal) {
           // 새 주식 생성
-          await axios.post('http://localhost:5000/stocks/', this.formData)
+          await api.post('/stocks/', this.formData)
           alert('새 주식이 등록되었습니다.')
         } else {
           // 주식 수정
-          await axios.put(`http://localhost:5000/stocks/${this.editingStockId}`, this.formData)
+          await api.put(`/stocks/${this.editingStockId}`, this.formData)
           alert('주식 정보가 수정되었습니다.')
         }
         
@@ -282,7 +282,7 @@ export default {
 
       this.loading = true
       try {
-                 const response = await axios.post('http://localhost:5000/collector/insert-default-stocks')
+                 const response = await api.post('/collector/insert-default-stocks')
                  alert(response.data.message)
         await this.loadStocks()
              } catch (error) {

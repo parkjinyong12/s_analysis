@@ -67,34 +67,146 @@ export default {
 
 <style scoped>
 .sidebar {
-  width: 160px;
-  background: #1976d2;
+  width: 180px;
+  background: linear-gradient(135deg, #1976d2 0%, #1565c0 100%);
   color: #fff;
   height: 100vh;
-  padding-top: 40px;
+  padding-top: 20px;
   position: fixed;
   left: 0;
   top: 0;
-  box-shadow: 2px 0 8px rgba(0,0,0,0.07);
+  box-shadow: 2px 0 12px rgba(0,0,0,0.15);
+  z-index: 1000;
 }
-.sidebar ul {
+
+.sidebar-header {
+  padding: 0 20px 20px 20px;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+  margin-bottom: 10px;
+}
+
+.sidebar-header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.sidebar-nav {
+  padding: 0 10px;
+}
+
+.nav-list {
   list-style: none;
   padding: 0;
   margin: 0;
 }
-.sidebar li {
-  padding: 18px 24px;
-  cursor: pointer;
-  font-size: 17px;
-  transition: background 0.2s, color 0.2s;
+
+.nav-item {
+  margin-bottom: 4px;
+  border-radius: 8px;
+  overflow: hidden;
 }
-.sidebar li.active, .sidebar li:hover {
-  background: #fff;
-  color: #1976d2;
-}
-.sidebar a {
-  color: inherit;
+
+.nav-link {
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+  color: rgba(255,255,255,0.9);
   text-decoration: none;
-  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.3s ease;
+  border-radius: 8px;
+  position: relative;
+}
+
+.nav-link:hover {
+  background: rgba(255,255,255,0.1);
+  color: #fff;
+}
+
+.nav-link.active {
+  background: rgba(255,255,255,0.95);
+  color: #1976d2;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  font-weight: 600;
+}
+
+.nav-link.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: #fff;
+  border-radius: 0 2px 2px 0;
+}
+
+.nav-icon {
+  font-size: 18px;
+  margin-right: 12px;
+  width: 20px;
+  text-align: center;
+}
+
+.nav-text {
+  flex: 1;
+  white-space: nowrap;
+}
+
+/* 호버 시 아이콘 애니메이션 */
+.nav-link:hover .nav-icon {
+  transform: scale(1.1);
+  transition: transform 0.2s ease;
+}
+
+/* 활성 상태에서 아이콘 강조 */
+.nav-link.active .nav-icon {
+  transform: scale(1.05);
+}
+
+/* 반응형 */
+@media (max-width: 768px) {
+  .sidebar {
+    width: 60px;
+  }
+  
+  .sidebar-header h3 {
+    font-size: 12px;
+  }
+  
+  .nav-text {
+    display: none;
+  }
+  
+  .nav-icon {
+    margin-right: 0;
+    font-size: 20px;
+  }
+  
+  .nav-link {
+    justify-content: center;
+    padding: 16px 8px;
+  }
+}
+
+/* 스크롤바 스타일링 */
+.sidebar::-webkit-scrollbar {
+  width: 4px;
+}
+
+.sidebar::-webkit-scrollbar-track {
+  background: rgba(255,255,255,0.1);
+}
+
+.sidebar::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.3);
+  border-radius: 2px;
+}
+
+.sidebar::-webkit-scrollbar-thumb:hover {
+  background: rgba(255,255,255,0.5);
 }
 </style> 

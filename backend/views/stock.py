@@ -4,6 +4,7 @@ Stock REST API 뷰
 """
 from flask import Blueprint, jsonify, request
 from backend.services.stock_service import StockService
+from backend.utils.transaction import safe_transaction, read_only_transaction
 import logging
 
 # 로거 설정
@@ -14,6 +15,7 @@ stock_bp = Blueprint('stock', __name__, url_prefix='/stocks')
 
 
 @stock_bp.route('/', methods=['GET'])
+@read_only_transaction
 def list_stocks():
     """
     주식 목록 조회
@@ -38,6 +40,7 @@ def list_stocks():
 
 
 @stock_bp.route('/<int:stock_id>', methods=['GET'])
+@read_only_transaction
 def get_stock(stock_id):
     """
     특정 주식 조회
@@ -79,6 +82,7 @@ def get_stock(stock_id):
 
 
 @stock_bp.route('/code/<string:stock_code>', methods=['GET'])
+@read_only_transaction
 def get_stock_by_code(stock_code):
     """
     주식 코드로 주식 조회
@@ -120,6 +124,7 @@ def get_stock_by_code(stock_code):
 
 
 @stock_bp.route('/', methods=['POST'])
+@safe_transaction
 def create_stock_api():
     """
     새 주식 생성
@@ -228,6 +233,7 @@ def create_stock_api():
 
 
 @stock_bp.route('/<int:stock_id>', methods=['PUT'])
+@safe_transaction
 def update_stock_api(stock_id):
     """
     주식 정보 수정
@@ -338,6 +344,7 @@ def update_stock_api(stock_id):
 
 
 @stock_bp.route('/<int:stock_id>', methods=['DELETE'])
+@safe_transaction
 def delete_stock_api(stock_id):
     """
     주식 삭제
@@ -393,6 +400,7 @@ def delete_stock_api(stock_id):
 
 
 @stock_bp.route('/search', methods=['GET'])
+@read_only_transaction
 def search_stocks():
     """
     주식 검색
@@ -439,6 +447,7 @@ def search_stocks():
 
 
 @stock_bp.route('/<int:stock_id>/accum', methods=['PUT'])
+@safe_transaction
 def update_accum_values(stock_id):
     """
     누적 초기값 업데이트

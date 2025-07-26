@@ -39,6 +39,14 @@
           테이블 생성
         </button>
         <button 
+          @click="resetDatabase" 
+          :disabled="isLoading"
+          class="btn btn-warning"
+          title="⚠️ 모든 테스트 데이터 삭제 (복구 불가)"
+        >
+          데이터 초기화
+        </button>
+        <button 
           @click="clearResults" 
           :disabled="isLoading"
           class="btn btn-outline"
@@ -327,6 +335,43 @@ export default {
       } catch (error) {
         console.error('테이블 생성 실패:', error);
         this.showError('테이블 생성에 실패했습니다.');
+      } finally {
+        this.isLoading = false;
+      }
+    },
+    
+    /**
+     * 데이터베이스 데이터 초기화 (모든 데이터 삭제)
+     */
+    async resetDatabase() {
+      const confirmMessage = '⚠️ 경고: 모든 테스트 데이터가 삭제됩니다!\n\n정말로 모든 데이터를 초기화하시겠습니까?\n\n이 작업은 되돌릴 수 없습니다.';
+      
+      if (!confirm(confirmMessage)) {
+        return;
+      }
+      
+      try {
+        this.isLoading = true;
+        this.clearError();
+        
+        const response = await api.post('/api-test/database/reset');
+        
+        if (response.data.status === 'success') {
+          this.showMessage('모든 테스트 데이터가 초기화되었습니다.', 'success');
+          
+          // 초기화 후 자동으로 데이터베이스 상태 재확인
+          setTimeout(() => {
+            if (!this.isLoading) {
+              this.testDatabase();
+            }
+          }, 1000);
+        } else {
+          this.showError(response.data.message || '데이터 초기화에 실패했습니다.');
+        }
+        
+      } catch (error) {
+        console.error('데이터 초기화 실패:', error);
+        this.showError('데이터 초기화에 실패했습니다.');
       } finally {
         this.isLoading = false;
       }

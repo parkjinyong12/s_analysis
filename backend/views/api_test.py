@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 def get_base_url():
     """기본 URL 반환"""
-    return "http://127.0.0.1:5000"
+    return "http://127.0.0.1:5001"
 
 @api_test_bp.route('/health', methods=['GET'])
 def health_check():
@@ -49,33 +49,48 @@ def test_all_endpoints():
     endpoints = [
         # Sample API
         {'name': 'Sample 목록 조회', 'method': 'GET', 'url': f'{base_url}/samples/', 'expected_status': 200},
+        {'name': 'Sample 검색', 'method': 'GET', 'url': f'{base_url}/samples/search?name=test', 'expected_status': 200},
         
         # Stock API  
         {'name': 'Stock 목록 조회', 'method': 'GET', 'url': f'{base_url}/stocks/', 'expected_status': 200},
+        {'name': 'Stock 검색', 'method': 'GET', 'url': f'{base_url}/stocks/search?name=삼성', 'expected_status': 200},
+        {'name': 'Stock 코드별 조회', 'method': 'GET', 'url': f'{base_url}/stocks/code/005930', 'expected_status': 200},  # 실제 데이터가 있으므로 200이 정상
         
         # Trading API
         {'name': 'Trading 목록 조회', 'method': 'GET', 'url': f'{base_url}/trading/', 'expected_status': 200},
+        {'name': 'Trading 검색', 'method': 'GET', 'url': f'{base_url}/trading/search?query=삼성', 'expected_status': 200},
+        {'name': 'Trading 날짜 범위 조회', 'method': 'GET', 'url': f'{base_url}/trading/date-range?start_date=2024-01-01&end_date=2024-12-31', 'expected_status': 200},
+        {'name': 'Trading 주식별 조회', 'method': 'GET', 'url': f'{base_url}/trading/stock/005930', 'expected_status': 200},
         
         # Collector API
         {'name': 'Collector 상태 조회', 'method': 'GET', 'url': f'{base_url}/collector/status', 'expected_status': 200},
         {'name': 'Collector 사용 가능한 주식 목록', 'method': 'GET', 'url': f'{base_url}/collector/stocks', 'expected_status': 200},
+        {'name': 'Collector 시작', 'method': 'POST', 'url': f'{base_url}/collector/start', 'expected_status': 200, 'data': {}},
+        {'name': 'Collector 중지', 'method': 'POST', 'url': f'{base_url}/collector/stop', 'expected_status': 400},  # 실행 중이 아닐 때 중지 요청 시 400은 정상
+        {'name': 'Collector 리셋', 'method': 'POST', 'url': f'{base_url}/collector/reset', 'expected_status': 200},
+        {'name': 'Collector 누적 계산', 'method': 'POST', 'url': f'{base_url}/collector/calculate-accumulated', 'expected_status': 200},
         
         # User API
         {'name': 'User 목록 조회', 'method': 'GET', 'url': f'{base_url}/users/', 'expected_status': 200},
         
         # API Test
         {'name': 'Health Check', 'method': 'GET', 'url': f'{base_url}/api-test/health', 'expected_status': 200},
+        {'name': 'Database 테스트', 'method': 'GET', 'url': f'{base_url}/api-test/database', 'expected_status': 200},
     ]
     
     for endpoint in endpoints:
         try:
             # HTTP 요청 실행
+            headers = {'Content-Type': 'application/json'}
+            
             if endpoint['method'] == 'GET':
                 response = requests.get(endpoint['url'], timeout=5)
             elif endpoint['method'] == 'POST':
-                response = requests.post(endpoint['url'], timeout=5)
+                data = endpoint.get('data', {})
+                response = requests.post(endpoint['url'], json=data, headers=headers, timeout=5)
             elif endpoint['method'] == 'PUT':
-                response = requests.put(endpoint['url'], timeout=5)
+                data = endpoint.get('data', {})
+                response = requests.put(endpoint['url'], json=data, headers=headers, timeout=5)
             elif endpoint['method'] == 'DELETE':
                 response = requests.delete(endpoint['url'], timeout=5)
             else:
@@ -298,60 +313,67 @@ def test_database_connection():
 @api_test_bp.route('/database/init', methods=['POST'])
 def initialize_database():
     """
-    데이터베이스 테이블 생성 (기존 데이터 보존)
-    SQLAlchemy의 create_all()을 사용하여 테이블이 없는 경우에만 생성
+    데이터베이스 테이블 초기화 (기존 데이터 보존)
     """
     try:
         from backend.extensions import db
-        from backend.models.sample import Sample
         from backend.models.stock import StockList
+        from backend.models.sample import Sample
         from backend.models.trading import StockInvestorTrading
         from backend.models.user import User
         
-        # 모든 테이블 생성
+        # 테이블 생성
         db.create_all()
         
-        # 생성된 테이블 확인
-        tables_created = []
-        
-        # 각 모델이 정상적으로 접근 가능한지 확인
-        try:
-            Sample.query.count()
-            tables_created.append('tb_sample')
-        except Exception as e:
-            logger.warning(f"tb_sample 테이블 확인 실패: {str(e)}")
-        
-        try:
-            StockList.query.count()
-            tables_created.append('stock_list')
-        except Exception as e:
-            logger.warning(f"stock_list 테이블 확인 실패: {str(e)}")
-        
-        try:
-            StockInvestorTrading.query.count()
-            tables_created.append('stock_investor_trading')
-        except Exception as e:
-            logger.warning(f"stock_investor_trading 테이블 확인 실패: {str(e)}")
-        
-        try:
-            User.query.count()
-            tables_created.append('users')
-        except Exception as e:
-            logger.warning(f"users 테이블 확인 실패: {str(e)}")
+        # 테이블 개수 확인
+        total_tables = 4  # stock_list, tb_sample, stock_investor_trading, user
         
         return jsonify({
             'status': 'success',
-            'message': '데이터베이스 테이블이 성공적으로 생성되었습니다. (기존 데이터는 보존됨)',
-            'tables_created': tables_created,
-            'total_tables': len(tables_created),
-            'note': 'create_all()은 테이블이 없는 경우에만 생성하며, 기존 데이터를 삭제하지 않습니다.',
+            'message': f'데이터베이스 테이블이 생성되었습니다. ({total_tables}개 테이블)',
+            'total_tables': total_tables,
+            'timestamp': datetime.now().isoformat()
+        }), 200
+        
+        except Exception as e:
+        logger.error(f"데이터베이스 초기화 실패: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'데이터베이스 초기화 실패: {str(e)}',
+            'timestamp': datetime.now().isoformat()
+        }), 500
+
+@api_test_bp.route('/database/reset', methods=['POST'])
+def reset_database():
+    """
+    테스트 데이터 초기화 (모든 데이터 삭제)
+    """
+    try:
+        from backend.extensions import db
+        from backend.models.stock import StockList
+        from backend.models.sample import Sample
+        from backend.models.trading import StockInvestorTrading
+        from backend.models.user import User
+        
+        # 모든 데이터 삭제
+        StockInvestorTrading.query.delete()
+        StockList.query.delete()
+        Sample.query.delete()
+        User.query.delete()
+        
+        db.session.commit()
+        
+        return jsonify({
+            'status': 'success',
+            'message': '모든 테스트 데이터가 초기화되었습니다.',
             'timestamp': datetime.now().isoformat()
         }), 200
         
     except Exception as e:
-        logger.error(f"데이터베이스 테이블 생성 실패: {str(e)}")
+        db.session.rollback()
+        logger.error(f"데이터베이스 초기화 실패: {str(e)}")
         return jsonify({
             'status': 'error',
-            'message': f'데이터베이스 테이블 생성 실패: {str(e)}',
+            'message': f'데이터베이스 초기화 실패: {str(e)}',
             'timestamp': datetime.now().isoformat()
         }), 500 

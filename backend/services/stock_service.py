@@ -124,15 +124,12 @@ class StockService:
             )
             
             db.session.add(stock)
-            db.session.commit()
-            
+            # 트랜잭션은 API 레벨에서 관리됨
             return stock
             
         except IntegrityError as e:
-            db.session.rollback()
             raise ValueError("데이터베이스 제약 조건 위반") from e
         except Exception as e:
-            db.session.rollback()
             raise Exception(f"주식 생성 중 오류 발생: {str(e)}") from e
 
     @staticmethod
