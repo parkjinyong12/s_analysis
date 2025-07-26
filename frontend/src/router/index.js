@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import HomeBoard from '../features/home/HomeBoard.vue'
 import SampleBoard from '../features/sample/SampleBoard.vue'
 import Sample2Board from '../features/sample2/Sample2Board.vue'
 import StockBoard from '../features/stock/StockBoard.vue'
@@ -10,7 +11,8 @@ import ApiSettings from '../features/settings/ApiSettings.vue'
 const routes = [
   {
     path: '/',
-    redirect: '/sample'
+    name: 'Home',
+    component: HomeBoard
   },
   {
     path: '/sample',

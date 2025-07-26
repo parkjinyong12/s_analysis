@@ -1,11 +1,20 @@
 <template>
   <div class="sidebar">
     <div class="sidebar-header">
-      <h3>📊 Stock Analysis</h3>
+      <router-link to="/" class="logo-link">
+        <h3>📊 Stock Analysis</h3>
+      </router-link>
     </div>
     
     <nav class="sidebar-nav">
       <ul class="nav-list">
+        <li class="nav-item">
+          <router-link to="/" class="nav-link" :class="{ active: $route.path === '/' }">
+            <span class="nav-icon">🏠</span>
+            <span class="nav-text">홈</span>
+          </router-link>
+        </li>
+        
         <li class="nav-item">
           <router-link to="/sample" class="nav-link" :class="{ active: $route.path === '/sample' }">
             <span class="nav-icon">📝</span>
@@ -83,6 +92,17 @@ export default {
   padding: 0 20px 20px 20px;
   border-bottom: 1px solid rgba(255,255,255,0.1);
   margin-bottom: 10px;
+}
+
+.logo-link {
+  text-decoration: none;
+  color: inherit;
+  display: block;
+  transition: all 0.3s ease;
+}
+
+.logo-link:hover {
+  transform: scale(1.05);
 }
 
 .sidebar-header h3 {
