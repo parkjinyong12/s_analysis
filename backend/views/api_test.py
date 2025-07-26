@@ -335,7 +335,7 @@ def initialize_database():
             'timestamp': datetime.now().isoformat()
         }), 200
         
-        except Exception as e:
+    except Exception as e:
         logger.error(f"데이터베이스 초기화 실패: {str(e)}")
         return jsonify({
             'status': 'error',
