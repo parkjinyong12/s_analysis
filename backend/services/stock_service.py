@@ -75,7 +75,7 @@ class StockService:
         Args:
             stock_code (str): 주식 코드
             stock_name (str): 주식명
-            init_date (Optional[str]): 초기화 날짜
+            init_date (Optional[str]): 상장일자
             institution_accum_init (int): 기관 누적 초기값
             foreigner_accum_init (int): 외국인 누적 초기값
             

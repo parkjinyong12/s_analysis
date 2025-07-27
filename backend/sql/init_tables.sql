@@ -1,9 +1,9 @@
 -- Stock Analysis Database 초기화 스크립트
--- 실행 방법: SQLite 콘솔에서 .read backend/sql/init_tables.sql
+-- PostgreSQL용 테이블 생성 스크립트
 
 -- 주식 목록 테이블 생성
 CREATE TABLE IF NOT EXISTS stock_list (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     stock_code VARCHAR(20) NOT NULL UNIQUE,
     stock_name VARCHAR(100) NOT NULL,
     init_date VARCHAR(10),
@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS stock_list (
 
 -- 주식 투자자별 거래 데이터 테이블 생성
 CREATE TABLE IF NOT EXISTS stock_investor_trading (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     stock_code VARCHAR(20) NOT NULL,
     stock_name VARCHAR(100) NOT NULL,
     trade_date VARCHAR(10) NOT NULL,
@@ -35,9 +35,9 @@ CREATE TABLE IF NOT EXISTS stock_investor_trading (
 -- 샘플 데이터 삽입 (선택사항)
 -- INSERT INTO stock_list (stock_code, stock_name, init_date, institution_accum_init, foreigner_accum_init) 
 -- VALUES 
---     ('005930', '삼성전자', '2024-01-01', 1000, 2000),
---     ('000660', 'SK하이닉스', '2024-01-01', 800, 1500),
---     ('035420', 'NAVER', '2024-01-01', 600, 1200);
+--     ('005930', '삼성전자', '1988-01-01', 1000, 2000),
+--     ('000660', 'SK하이닉스', '1996-01-01', 800, 1500),
+--     ('035420', 'NAVER', '2002-01-01', 600, 1200);
 
 -- INSERT INTO stock_investor_trading (stock_code, stock_name, trade_date, close_price, institution_net_buy, foreigner_net_buy, institution_accum, foreigner_accum, institution_trend_signal, institution_trend_score, foreigner_trend_signal, foreigner_trend_score)
 -- VALUES 

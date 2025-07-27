@@ -35,10 +35,10 @@ backend/
 ### stock_list 테이블
 ```sql
 CREATE TABLE IF NOT EXISTS stock_list (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     stock_code VARCHAR(20) NOT NULL UNIQUE,
     stock_name VARCHAR(100) NOT NULL,
-    init_date VARCHAR(10),
+    init_date VARCHAR(10), -- 상장일자
     institution_accum_init INTEGER NOT NULL DEFAULT 0,
     foreigner_accum_init INTEGER NOT NULL DEFAULT 0
 );
@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS stock_list (
 ### stock_investor_trading 테이블
 ```sql
 CREATE TABLE IF NOT EXISTS stock_investor_trading (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     stock_code VARCHAR(20) NOT NULL,
     stock_name VARCHAR(100) NOT NULL,
     trade_date VARCHAR(10) NOT NULL,

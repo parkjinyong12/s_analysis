@@ -123,7 +123,10 @@ export const API_ENDPOINTS = {
     HEALTH: '/api-test/health',
     ENDPOINTS: '/api-test/endpoints',
     DATABASE: '/api-test/database',
-    DATABASE_INIT: '/api-test/database/init'
+    DATABASE_INIT: '/api-test/database/init',
+    TEST_MODE_START: '/api-test/test-mode/start',
+    TEST_MODE_END: '/api-test/test-mode/end',
+    TEST_MODE_STATUS: '/api-test/test-mode/status'
   },
   
   // History

@@ -236,20 +236,32 @@ export default {
     },
     earliestDate() {
       if (this.tradingData.length === 0) return '-'
-      const dates = this.tradingData.map(item => item.trade_date)
-      const earliestDateObj = new Date(Math.min(...dates.map(date => new Date(date))))
-      return earliestDateObj.toISOString().split('T')[0]
+      try {
+        const dates = this.tradingData.map(item => item.trade_date).filter(date => date)
+        if (dates.length === 0) return '-'
+        const earliestDateObj = new Date(Math.min(...dates.map(date => new Date(date))))
+        return earliestDateObj.toISOString().split('T')[0]
+      } catch (error) {
+        console.error('earliestDate 계산 오류:', error)
+        return '-'
+      }
     },
     latestDate() {
       if (this.tradingData.length === 0) return '-'
-      const dates = this.tradingData.map(item => item.trade_date)
-      const latestDateObj = new Date(Math.max(...dates.map(date => new Date(date))))
-      return latestDateObj.toISOString().split('T')[0]
+      try {
+        const dates = this.tradingData.map(item => item.trade_date).filter(date => date)
+        if (dates.length === 0) return '-'
+        const latestDateObj = new Date(Math.max(...dates.map(date => new Date(date))))
+        return latestDateObj.toISOString().split('T')[0]
+      } catch (error) {
+        console.error('latestDate 계산 오류:', error)
+        return '-'
+      }
     }
   },
   mounted() {
-    this.loadTradingData()
     this.setDefaultDates()
+    this.searchTradingData()
   },
   methods: {
     async loadTradingData() {

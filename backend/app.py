@@ -1,8 +1,6 @@
 from flask import Flask
 from flask_cors import CORS
 from backend.extensions import db, cors, executor
-import os
-import sqlite3
 
 def create_app():
     """Flask 애플리케이션 팩토리"""
@@ -33,23 +31,9 @@ def create_app():
     app.register_blueprint(api_test_bp)
     app.register_blueprint(history_bp)
     
-    # 데이터베이스 테이블 생성 및 WAL 모드 설정
+    # 데이터베이스 테이블 생성
     with app.app_context():
         db.create_all()
-        
-        # SQLite WAL 모드 활성화 (동시성 개선)
-        db_path = os.path.join(os.path.dirname(__file__), 'app.db')
-        try:
-            conn = sqlite3.connect(db_path)
-            conn.execute('PRAGMA journal_mode=WAL')
-            conn.execute('PRAGMA synchronous=NORMAL')
-            conn.execute('PRAGMA cache_size=10000')
-            conn.execute('PRAGMA temp_store=MEMORY')
-            conn.commit()
-            conn.close()
-            print("SQLite WAL 모드 활성화 완료")
-        except Exception as e:
-            print(f"SQLite WAL 모드 설정 실패: {e}")
     
     return app
 

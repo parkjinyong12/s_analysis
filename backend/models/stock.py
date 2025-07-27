@@ -14,7 +14,7 @@ class StockList(db.Model):
         id (int): 주식 고유 ID (Primary Key, Auto Increment)
         stock_code (str): 주식 코드 (중복 불가)
         stock_name (str): 주식명
-        init_date (str): 초기화 날짜
+        init_date (str): 상장일자
         institution_accum_init (int): 기관 누적 초기값 (기본값: 0)
         foreigner_accum_init (int): 외국인 누적 초기값 (기본값: 0)
     """
@@ -37,7 +37,7 @@ class StockList(db.Model):
     )
     init_date = db.Column(
         db.String(10), 
-        comment='초기화 날짜 (YYYY-MM-DD)'
+        comment='상장일자 (YYYY-MM-DD)'
     )
     
     # 누적 초기값
@@ -116,7 +116,7 @@ class StockList(db.Model):
         
         Args:
             stock_name (str): 새로운 주식명
-            init_date (Optional[str]): 새로운 초기화 날짜
+            init_date (Optional[str]): 새로운 상장일자
             institution_accum_init (Optional[int]): 새로운 기관 누적 초기값
             foreigner_accum_init (Optional[int]): 새로운 외국인 누적 초기값
         """

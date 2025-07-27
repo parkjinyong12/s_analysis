@@ -77,6 +77,10 @@
           ></div>
         </div>
         <span class="progress-text">{{ status.progress }}%</span>
+        <div class="progress-indicator" v-if="status.is_running">
+          <div class="spinner"></div>
+          <span>실시간 업데이트 중...</span>
+        </div>
       </div>
 
       <!-- 현재 처리 중인 주식 -->
@@ -236,19 +240,51 @@ export default {
     async loadStatus() {
       try {
         const response = await api.get(API_ENDPOINTS.COLLECTOR.STATUS)
-        this.status = { ...this.status, ...response.data }
+        const newStatus = response.data
+        
+        // 상태가 변경되었는지 확인
+        const hasChanged = JSON.stringify(this.status) !== JSON.stringify(newStatus)
+        
+        if (hasChanged) {
+          const oldStatus = { ...this.status }
+          this.status = { ...this.status, ...newStatus }
+          console.log('상태 업데이트:', {
+            old: oldStatus,
+            new: newStatus,
+            timestamp: new Date().toISOString()
+          })
+        }
+        
+        // 수집이 완료되면 폴링 간격을 다시 조정
+        if (!newStatus.is_running && this.status.is_running) {
+          console.log('수집 완료 - 폴링 간격 조정')
+          this.stopStatusPolling()
+          this.startStatusPolling()
+        }
+        
       } catch (error) {
         console.error('상태 로딩 실패:', error)
       }
     },
 
     startStatusPolling() {
-      // 데이터 수집이 실행 중일 때만 1초마다 상태 업데이트
+      // 데이터 수집이 실행 중일 때는 300ms마다, 그 외에는 30초마다 상태 업데이트
       this.statusInterval = setInterval(() => {
         if (this.status.is_running) {
           this.loadStatus()
+        } else {
+          // 서버 상태 모니터링을 위해 30초마다 health 체크
+          this.checkServerHealth()
         }
-      }, 1000)
+      }, this.status.is_running ? 300 : 30000)
+    },
+
+    async checkServerHealth() {
+      try {
+        await api.get(API_ENDPOINTS.API_TEST.HEALTH)
+      } catch (error) {
+        console.warn('서버 상태 확인 실패:', error)
+      }
     },
 
     stopStatusPolling() {
@@ -267,7 +303,20 @@ export default {
         })
         
         this.$emit('show-message', response.data.message, 'success')
-        this.loadStatus() // 즉시 상태 업데이트
+        
+        // 즉시 상태 업데이트
+        await this.loadStatus()
+        
+        // 수집이 시작되면 폴링 간격을 더 빠르게 조정
+        this.stopStatusPolling()
+        this.startStatusPolling()
+        
+        // 추가로 1초 후 한 번 더 상태 확인
+        setTimeout(() => {
+          if (this.status.is_running) {
+            this.loadStatus()
+          }
+        }, 1000)
         
       } catch (error) {
         console.error('수집 시작 실패:', error)
@@ -804,6 +853,40 @@ export default {
 .btn-info:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+/* 실시간 업데이트 인디케이터 */
+.progress-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: #666;
+}
+
+.spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid #f3f3f3;
+  border-top: 2px solid #3498db;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* 진행률 바 애니메이션 */
+.progress-fill {
+  transition: width 0.3s ease-in-out;
+}
+
+/* 상태 변경 시 부드러운 전환 */
+.progress-section {
+  transition: all 0.3s ease-in-out;
 }
 
 .completion-message h3 {

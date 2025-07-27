@@ -4,6 +4,7 @@ Sample REST API 뷰
 """
 from flask import Blueprint, jsonify, request
 from backend.services.sample_service import SampleService
+from backend.utils.transaction import safe_transaction, read_only_transaction
 import logging
 
 # 로거 설정
@@ -14,6 +15,7 @@ sample_bp = Blueprint('sample', __name__, url_prefix='/samples')
 
 
 @sample_bp.route('/', methods=['GET'])
+@read_only_transaction
 def list_samples():
     """
     샘플 목록 조회
@@ -38,6 +40,7 @@ def list_samples():
 
 
 @sample_bp.route('/<int:sample_id>', methods=['GET'])
+@read_only_transaction
 def get_sample(sample_id):
     """
     특정 샘플 조회
@@ -79,6 +82,7 @@ def get_sample(sample_id):
 
 
 @sample_bp.route('/', methods=['POST'])
+@safe_transaction
 def create_sample_api():
     """
     새 샘플 생성
@@ -153,6 +157,7 @@ def create_sample_api():
 
 
 @sample_bp.route('/<int:sample_id>', methods=['PUT'])
+@safe_transaction
 def update_sample_api(sample_id):
     """
     샘플 정보 수정
@@ -239,6 +244,7 @@ def update_sample_api(sample_id):
 
 
 @sample_bp.route('/<int:sample_id>', methods=['DELETE'])
+@safe_transaction
 def delete_sample_api(sample_id):
     """
     샘플 삭제
@@ -294,6 +300,7 @@ def delete_sample_api(sample_id):
 
 
 @sample_bp.route('/search', methods=['GET'])
+@read_only_transaction
 def search_samples():
     """
     샘플 검색

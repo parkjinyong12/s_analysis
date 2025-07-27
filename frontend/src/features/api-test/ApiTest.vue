@@ -55,6 +55,39 @@
         </button>
       </div>
       
+      <!-- 테스트 모드 컨트롤 -->
+      <div class="test-mode-control">
+        <div class="test-mode-status" :class="{ active: testModeStatus.is_test_mode }">
+          <span class="status-indicator"></span>
+          {{ testModeStatus.is_test_mode ? '테스트 모드 활성화됨' : '테스트 모드 비활성화됨' }}
+        </div>
+        <div class="test-mode-buttons">
+          <button 
+            @click="startTestMode" 
+            :disabled="isLoading || testModeStatus.is_test_mode"
+            class="btn btn-success"
+            title="데이터를 백업하고 테스트 모드를 시작합니다"
+          >
+            🛡️ 테스트 모드 시작
+          </button>
+          <button 
+            @click="endTestMode" 
+            :disabled="isLoading || !testModeStatus.is_test_mode"
+            class="btn btn-danger"
+            title="백업된 데이터로 복원하고 테스트 모드를 종료합니다"
+          >
+            🔄 테스트 모드 종료
+          </button>
+          <button 
+            @click="checkTestModeStatus" 
+            :disabled="isLoading"
+            class="btn btn-info"
+          >
+            상태 확인
+          </button>
+        </div>
+      </div>
+      
       <!-- 자동 새로고침 -->
       <div class="auto-refresh">
         <label class="checkbox-label">
@@ -96,6 +129,37 @@
       </div>
       <div class="test-timestamp">
         마지막 테스트: {{ formatDate(testSummary.test_timestamp) }}
+      </div>
+    </section>
+
+    <!-- 테스트 모드 상태 -->
+    <section v-if="testModeStatus.is_test_mode" class="test-mode-info">
+      <h3>🛡️ 테스트 모드 정보</h3>
+      <div class="test-mode-details">
+        <div class="detail-item">
+          <strong>시작 시간:</strong> {{ formatDate(testModeStatus.test_start_time) }}
+        </div>
+        <div class="detail-item">
+          <strong>백업된 데이터:</strong>
+        </div>
+        <div class="backup-summary">
+          <div class="backup-item">
+            <span class="backup-label">주식:</span>
+            <span class="backup-value">{{ testModeStatus.backup_summary?.stocks_count || 0 }}개</span>
+          </div>
+          <div class="backup-item">
+            <span class="backup-label">거래 데이터:</span>
+            <span class="backup-value">{{ testModeStatus.backup_summary?.trading_data_count || 0 }}개</span>
+          </div>
+          <div class="backup-item">
+            <span class="backup-label">샘플:</span>
+            <span class="backup-value">{{ testModeStatus.backup_summary?.samples_count || 0 }}개</span>
+          </div>
+          <div class="backup-item">
+            <span class="backup-label">사용자:</span>
+            <span class="backup-value">{{ testModeStatus.backup_summary?.users_count || 0 }}개</span>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -214,12 +278,24 @@ export default {
       serverHealth: null,
       databaseStatus: null,
       
+      // 테스트 모드 상태
+      testModeStatus: {
+        is_test_mode: false,
+        test_start_time: null,
+        backup_summary: {}
+      },
+      
       // 자동 새로고침
       autoRefresh: false,
       refreshInterval: null,
       
       // API 설정 (더 이상 필요 없음 - 중앙화된 설정 사용)
     };
+  },
+  
+  async mounted() {
+    // 컴포넌트 마운트 시 테스트 모드 상태 확인
+    await this.checkTestModeStatus();
   },
   
   beforeUnmount() {
@@ -236,7 +312,11 @@ export default {
         this.isLoading = true;
         this.clearError();
         
-        const response = await api.get(API_ENDPOINTS.API_TEST.ENDPOINTS);
+        // 진행 상황 메시지 표시
+        this.showMessage('API 테스트를 실행 중입니다. 잠시만 기다려주세요...', 'info');
+        
+        // API 테스트는 시간이 오래 걸릴 수 있으므로 타임아웃을 60초로 설정
+        const response = await api.get(API_ENDPOINTS.API_TEST.ENDPOINTS, { timeout: 60000 });
         
         this.testSummary = response.data.summary;
         this.testResults = response.data.results;
@@ -245,7 +325,11 @@ export default {
         
       } catch (error) {
         console.error('API 테스트 실행 실패:', error);
-        this.showError('API 테스트 실행에 실패했습니다.');
+        if (error.code === 'ECONNABORTED') {
+          this.showError('API 테스트가 시간 초과되었습니다. (60초)');
+        } else {
+          this.showError('API 테스트 실행에 실패했습니다.');
+        }
       } finally {
         this.isLoading = false;
       }
@@ -377,7 +461,80 @@ export default {
       }
     },
     
-
+    /**
+     * 테스트 모드 시작
+     */
+    async startTestMode() {
+      try {
+        this.isLoading = true;
+        this.clearError();
+        
+        const response = await api.post(API_ENDPOINTS.API_TEST.TEST_MODE_START);
+        
+        if (response.data.status === 'success') {
+          this.showMessage('테스트 모드가 시작되었습니다. 데이터가 백업되었습니다.', 'success');
+          await this.checkTestModeStatus();
+        } else {
+          this.showError(response.data.message || '테스트 모드 시작에 실패했습니다.');
+        }
+        
+      } catch (error) {
+        console.error('테스트 모드 시작 실패:', error);
+        this.showError('테스트 모드 시작에 실패했습니다.');
+      } finally {
+        this.isLoading = false;
+      }
+    },
+    
+    /**
+     * 테스트 모드 종료
+     */
+    async endTestMode() {
+      const confirmMessage = '테스트 모드를 종료하고 백업된 데이터로 복원하시겠습니까?\n\n테스트 중에 변경된 모든 데이터가 원래 상태로 되돌아갑니다.';
+      
+      if (!confirm(confirmMessage)) {
+        return;
+      }
+      
+      try {
+        this.isLoading = true;
+        this.clearError();
+        
+        const response = await api.post(API_ENDPOINTS.API_TEST.TEST_MODE_END);
+        
+        if (response.data.status === 'success') {
+          this.showMessage('테스트 모드가 종료되었습니다. 데이터가 복원되었습니다.', 'success');
+          await this.checkTestModeStatus();
+        } else {
+          this.showError(response.data.message || '테스트 모드 종료에 실패했습니다.');
+        }
+        
+      } catch (error) {
+        console.error('테스트 모드 종료 실패:', error);
+        this.showError('테스트 모드 종료에 실패했습니다.');
+      } finally {
+        this.isLoading = false;
+      }
+    },
+    
+    /**
+     * 테스트 모드 상태 확인
+     */
+    async checkTestModeStatus() {
+      try {
+        this.isLoading = true;
+        this.clearError();
+        
+        const response = await api.get(API_ENDPOINTS.API_TEST.TEST_MODE_STATUS);
+        this.testModeStatus = response.data;
+        
+      } catch (error) {
+        console.error('테스트 모드 상태 확인 실패:', error);
+        this.showError('테스트 모드 상태 확인에 실패했습니다.');
+      } finally {
+        this.isLoading = false;
+      }
+    },
     
     /**
      * 결과 초기화
@@ -950,6 +1107,104 @@ export default {
 }
 
 .result-preview {
+
+/* 테스트 모드 컨트롤 스타일 */
+.test-mode-control {
+  margin-top: 20px;
+  padding: 20px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #e9ecef;
+}
+
+.test-mode-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 12px;
+  background: #fff;
+  border-radius: 6px;
+  border: 1px solid #dee2e6;
+}
+
+.test-mode-status.active {
+  background: #e8f5e8;
+  border-color: #4caf50;
+}
+
+.status-indicator {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #dc3545;
+}
+
+.test-mode-status.active .status-indicator {
+  background: #28a745;
+}
+
+.test-mode-buttons {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.test-mode-info {
+  margin-top: 24px;
+  padding: 20px;
+  background: #e8f5e8;
+  border-radius: 8px;
+  border: 1px solid #4caf50;
+}
+
+.test-mode-info h3 {
+  margin: 0 0 16px 0;
+  color: #2e7d32;
+}
+
+.test-mode-details {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.detail-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.backup-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.backup-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: #fff;
+  border-radius: 4px;
+  border: 1px solid #4caf50;
+}
+
+.backup-label {
+  font-weight: 600;
+  color: #2e7d32;
+}
+
+.backup-value {
+  font-weight: 600;
+  color: #1b5e20;
+  background: #c8e6c9;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+}
   font-size: 14px;
 }
 

@@ -37,7 +37,7 @@
             <th>ID</th>
             <th>주식 코드</th>
             <th>주식명</th>
-            <th>초기화 날짜</th>
+            <th>상장일자</th>
             <th>기관 누적 초기값</th>
             <th>외국인 누적 초기값</th>
             <th>액션</th>
@@ -97,7 +97,7 @@
           </div>
           
           <div class="form-group">
-            <label>초기화 날짜</label>
+            <label>상장일자</label>
             <input 
               v-model="formData.init_date" 
               type="date" 

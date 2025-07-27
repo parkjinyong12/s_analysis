@@ -4,6 +4,7 @@ Stock Investor Trading REST API 뷰
 """
 from flask import Blueprint, jsonify, request
 from backend.services.trading_service import TradingService
+from backend.utils.transaction import safe_transaction, read_only_transaction
 import logging
 
 # 로거 설정
@@ -14,6 +15,7 @@ trading_bp = Blueprint('trading', __name__, url_prefix='/trading')
 
 
 @trading_bp.route('/', methods=['GET'])
+@read_only_transaction
 def list_trading_data():
     """
     거래 데이터 목록 조회
@@ -38,6 +40,7 @@ def list_trading_data():
 
 
 @trading_bp.route('/<int:trading_id>', methods=['GET'])
+@read_only_transaction
 def get_trading_data(trading_id):
     """
     특정 거래 데이터 조회
@@ -79,6 +82,7 @@ def get_trading_data(trading_id):
 
 
 @trading_bp.route('/stock/<string:stock_code>', methods=['GET'])
+@read_only_transaction
 def get_trading_data_by_stock_code(stock_code):
     """
     주식 코드로 거래 데이터 조회
@@ -114,6 +118,7 @@ def get_trading_data_by_stock_code(stock_code):
 
 
 @trading_bp.route('/date-range', methods=['GET'])
+@read_only_transaction
 def get_trading_data_by_date_range():
     """
     날짜 범위로 거래 데이터 조회
@@ -157,6 +162,7 @@ def get_trading_data_by_date_range():
 
 
 @trading_bp.route('/', methods=['POST'])
+@safe_transaction
 def create_trading_data_api():
     """
     새 거래 데이터 생성
@@ -329,6 +335,7 @@ def create_trading_data_api():
 
 
 @trading_bp.route('/<int:trading_id>', methods=['PUT'])
+@safe_transaction
 def update_trading_data_api(trading_id):
     """
     거래 데이터 정보 수정
@@ -445,6 +452,7 @@ def update_trading_data_api(trading_id):
 
 
 @trading_bp.route('/<int:trading_id>', methods=['DELETE'])
+@safe_transaction
 def delete_trading_data_api(trading_id):
     """
     거래 데이터 삭제
@@ -500,6 +508,7 @@ def delete_trading_data_api(trading_id):
 
 
 @trading_bp.route('/search', methods=['GET'])
+@read_only_transaction
 def search_trading_data():
     """
     거래 데이터 검색
@@ -547,6 +556,7 @@ def search_trading_data():
 
 
 @trading_bp.route('/<int:trading_id>/trend', methods=['PUT'])
+@safe_transaction
 def update_trend_analysis(trading_id):
     """
     트렌드 분석 데이터 업데이트

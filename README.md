@@ -37,7 +37,7 @@ stock-analysis/
 - **Flask**: 웹 프레임워크
 - **Flask-SQLAlchemy**: ORM
 - **Flask-CORS**: CORS 처리
-- **SQLite**: 데이터베이스
+- **PostgreSQL**: 데이터베이스
 
 ### Frontend
 - **Vue.js 3**: 프론트엔드 프레임워크
@@ -138,4 +138,4 @@ MIT License
 - Backend는 MVC 패턴으로 구성되어 확장성을 고려했습니다
 - Frontend는 기능별 폴더 구조로 관리됩니다
 - CORS 설정이 적용되어 개발 환경에서 API 연동이 원활합니다
-- SQLite DB 파일은 backend 폴더에 자동 생성됩니다 
+- PostgreSQL 데이터베이스 연결이 필요합니다 (DATABASE_URL 환경변수 설정) 

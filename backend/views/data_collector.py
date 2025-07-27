@@ -10,6 +10,7 @@ from backend.extensions import executor
 from backend.services.data_collector import DataCollectorService
 from backend.models.stock import StockList
 from backend.services.stock_service import StockService
+from backend.utils.transaction import safe_transaction, read_only_transaction
 
 # 로깅 설정
 logger = logging.getLogger(__name__)
@@ -156,6 +157,7 @@ def collect_data_background(years: int = 3, max_pages: int = 10):
         collection_status['task_id'] = None
 
 @collector_bp.route('/status', methods=['GET'])
+@read_only_transaction
 def get_collection_status():
     """
     데이터 수집 상태 조회
@@ -172,6 +174,7 @@ def get_collection_status():
         }), 500
 
 @collector_bp.route('/start', methods=['POST'])
+@safe_transaction
 def start_collection():
     """
     데이터 수집 시작
@@ -253,6 +256,7 @@ def start_collection():
         }), 500
 
 @collector_bp.route('/stop', methods=['POST'])
+@safe_transaction
 def stop_collection():
     """
     데이터 수집 중단
@@ -285,6 +289,7 @@ def stop_collection():
         }), 500
 
 @collector_bp.route('/reset', methods=['POST'])
+@safe_transaction
 def reset_collection():
     """
     수집 상태 초기화
@@ -330,6 +335,7 @@ def reset_collection():
         }), 500
 
 @collector_bp.route('/stocks', methods=['GET'])
+@read_only_transaction
 def get_available_stocks():
     """
     수집 가능한 주식 목록 조회
@@ -362,6 +368,7 @@ def get_available_stocks():
         }), 500
 
 @collector_bp.route('/calculate-accumulated', methods=['POST'])
+@safe_transaction
 def calculate_accumulated_data():
     """
     모든 주식의 누적 매수량 데이터를 계산
@@ -392,6 +399,7 @@ def calculate_accumulated_data():
 
 
 @collector_bp.route('/clear-all-trading-data', methods=['DELETE'])
+@safe_transaction
 def clear_all_trading_data():
     """
     모든 거래 데이터를 삭제
@@ -429,6 +437,7 @@ def clear_all_trading_data():
 
 
 @collector_bp.route('/clear-trading-data/<stock_code>', methods=['DELETE'])
+@safe_transaction
 def clear_trading_data_by_stock(stock_code):
     """
     특정 종목의 거래 데이터를 삭제
@@ -479,6 +488,7 @@ def clear_trading_data_by_stock(stock_code):
 
 
 @collector_bp.route('/clear-trading-data-bulk', methods=['DELETE'])
+@safe_transaction
 def clear_trading_data_bulk():
     """
     여러 종목의 거래 데이터를 일괄 삭제
@@ -538,6 +548,7 @@ def clear_trading_data_bulk():
 
 
 @collector_bp.route('/calculate-accumulated/<stock_code>', methods=['POST'])
+@safe_transaction
 def calculate_accumulated_data_by_stock(stock_code):
     """
     특정 종목의 누적 매수량 데이터를 계산
@@ -588,6 +599,7 @@ def calculate_accumulated_data_by_stock(stock_code):
 
 
 @collector_bp.route('/test-url/<stock_code>', methods=['GET'])
+@read_only_transaction
 def test_url(stock_code):
     """
     특정 주식의 데이터를 가져오는 테스트 엔드포인트

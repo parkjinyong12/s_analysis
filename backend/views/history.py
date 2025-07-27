@@ -6,6 +6,7 @@ from flask import Blueprint, jsonify, request
 from backend.services.history_service import HistoryService
 from backend.extensions import db
 from backend.models.history import DataHistory, SystemLog
+from backend.utils.transaction import safe_transaction, read_only_transaction
 from datetime import datetime, timedelta
 import logging
 
@@ -17,6 +18,7 @@ history_bp = Blueprint('history', __name__, url_prefix='/history')
 
 
 @history_bp.route('/data', methods=['GET'])
+@read_only_transaction
 def get_data_history():
     """
     데이터 히스토리 조회
@@ -85,6 +87,7 @@ def get_data_history():
 
 
 @history_bp.route('/system', methods=['GET'])
+@read_only_transaction
 def get_system_logs():
     """
     시스템 로그 조회
@@ -150,6 +153,7 @@ def get_system_logs():
 
 
 @history_bp.route('/latest', methods=['GET'])
+@read_only_transaction
 def get_latest_activity():
     """
     최근 활동 조회
@@ -182,6 +186,7 @@ def get_latest_activity():
 
 
 @history_bp.route('/summary', methods=['GET'])
+@read_only_transaction
 def get_activity_summary():
     """
     활동 요약 조회
@@ -209,6 +214,7 @@ def get_activity_summary():
 
 
 @history_bp.route('/stats', methods=['GET'])
+@read_only_transaction
 def get_history_stats():
     """
     히스토리 통계 조회
@@ -268,6 +274,7 @@ def get_history_stats():
 
 
 @history_bp.route('/clear', methods=['DELETE'])
+@safe_transaction
 def clear_old_history():
     """
     오래된 히스토리 삭제
