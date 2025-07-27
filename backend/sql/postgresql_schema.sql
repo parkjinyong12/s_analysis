@@ -63,11 +63,24 @@ CREATE TABLE IF NOT EXISTS system_log (
 -- 주식 코드 인덱스
 CREATE INDEX IF NOT EXISTS idx_stock_list_stock_code ON stock_list(stock_code);
 
--- 거래 데이터 인덱스들
+-- 거래 데이터 인덱스들 (기본 인덱스)
 CREATE INDEX IF NOT EXISTS idx_stock_investor_trading_stock_code ON stock_investor_trading(stock_code);
 CREATE INDEX IF NOT EXISTS idx_stock_investor_trading_trade_date ON stock_investor_trading(trade_date);
 CREATE INDEX IF NOT EXISTS idx_stock_investor_trading_stock_date ON stock_investor_trading(stock_code, trade_date);
 CREATE INDEX IF NOT EXISTS idx_stock_investor_trading_date_stock ON stock_investor_trading(trade_date, stock_code);
+
+-- 거래 데이터 조회 성능 최적화 인덱스 (추가)
+-- 날짜 범위 조회 최적화
+CREATE INDEX IF NOT EXISTS idx_trading_date_range ON stock_investor_trading(trade_date);
+CREATE INDEX IF NOT EXISTS idx_trading_date_close_price ON stock_investor_trading(trade_date, close_price);
+
+-- 종목별 날짜 범위 조회 최적화
+CREATE INDEX IF NOT EXISTS idx_trading_stock_date_range ON stock_investor_trading(stock_code, trade_date);
+CREATE INDEX IF NOT EXISTS idx_trading_stock_date_close ON stock_investor_trading(stock_code, trade_date, close_price);
+
+-- 기관/외국인 순매수 조회 최적화
+CREATE INDEX IF NOT EXISTS idx_trading_stock_date_institution_net ON stock_investor_trading(stock_code, trade_date, institution_net_buy);
+CREATE INDEX IF NOT EXISTS idx_trading_stock_date_foreigner_net ON stock_investor_trading(stock_code, trade_date, foreigner_net_buy);
 
 -- 히스토리 인덱스들
 CREATE INDEX IF NOT EXISTS idx_data_history_table_name ON data_history(table_name);

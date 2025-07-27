@@ -122,7 +122,7 @@ def get_trading_data_by_stock_code(stock_code):
 @read_only_transaction
 def get_trading_data_by_date_range():
     """
-    날짜 범위로 거래 데이터 조회
+    날짜 범위로 거래 데이터 조회 (인덱스 최적화)
     
     Query Parameters:
         start_date (str): 시작 날짜 (YYYY-MM-DD, 필수)
@@ -156,6 +156,121 @@ def get_trading_data_by_date_range():
         
     except Exception as e:
         logger.error(f"날짜 범위 거래 데이터 조회 실패: {str(e)}")
+        return jsonify({
+            'error': '거래 데이터를 조회하는데 실패했습니다.',
+            'message': str(e)
+        }), 500
+
+@trading_bp.route('/stock-date-range', methods=['GET'])
+@read_only_transaction
+def get_trading_data_by_stock_date_range():
+    """
+    특정 종목의 날짜 범위 거래 데이터 조회 (고성능)
+    
+    Query Parameters:
+        stock_code (str): 주식 코드 (필수)
+        start_date (str): 시작 날짜 (YYYY-MM-DD, 필수)
+        end_date (str): 종료 날짜 (YYYY-MM-DD, 필수)
+        include_price (bool): 종가 포함 여부 (기본값: true)
+        include_institution (bool): 기관 데이터 포함 여부 (기본값: true)
+        include_foreigner (bool): 외국인 데이터 포함 여부 (기본값: true)
+        
+    Returns:
+        JSON: 거래 데이터 목록
+        
+    Example:
+        GET /trading/stock-date-range?stock_code=005930&start_date=2024-01-01&end_date=2024-01-31&include_price=true&include_institution=true&include_foreigner=false
+        Response: [{"id": 1, "stock_code": "005930", "trade_date": "2024-01-01", "close_price": 70000, "institution_net_buy": 1000, ...}]
+    """
+    try:
+        stock_code = request.args.get('stock_code', '').strip()
+        start_date = request.args.get('start_date', '').strip()
+        end_date = request.args.get('end_date', '').strip()
+        
+        # 불린 파라미터 처리
+        include_price = request.args.get('include_price', 'true').lower() == 'true'
+        include_institution = request.args.get('include_institution', 'true').lower() == 'true'
+        include_foreigner = request.args.get('include_foreigner', 'true').lower() == 'true'
+        
+        if not stock_code:
+            return jsonify({
+                'error': '주식 코드는 필수입니다.',
+                'required_parameters': ['stock_code']
+            }), 400
+        
+        if not start_date or not end_date:
+            return jsonify({
+                'error': '시작 날짜와 종료 날짜는 필수입니다.',
+                'required_parameters': ['start_date', 'end_date'],
+                'format': 'YYYY-MM-DD'
+            }), 400
+        
+        trading_data = TradingService.get_trading_data_by_stock_date_range(
+            stock_code, start_date, end_date, include_price, include_institution, include_foreigner
+        )
+        
+        return jsonify([data.to_dict() for data in trading_data]), 200
+        
+    except Exception as e:
+        logger.error(f"종목별 날짜 범위 거래 데이터 조회 실패: {str(e)}")
+        return jsonify({
+            'error': '거래 데이터를 조회하는데 실패했습니다.',
+            'message': str(e)
+        }), 500
+
+@trading_bp.route('/date-range-optimized', methods=['GET'])
+@read_only_transaction
+def get_trading_data_by_date_range_optimized():
+    """
+    날짜 범위 거래 데이터 조회 (페이징 지원, 고성능)
+    
+    Query Parameters:
+        start_date (str): 시작 날짜 (YYYY-MM-DD, 필수)
+        end_date (str): 종료 날짜 (YYYY-MM-DD, 필수)
+        limit (int): 조회할 레코드 수 제한 (선택, 기본값: 1000)
+        offset (int): 건너뛸 레코드 수 (선택, 기본값: 0)
+        
+    Returns:
+        JSON: 거래 데이터 목록
+        
+    Example:
+        GET /trading/date-range-optimized?start_date=2024-01-01&end_date=2024-01-31&limit=100&offset=0
+        Response: [{"id": 1, "stock_code": "005930", "trade_date": "2024-01-01", ...}]
+    """
+    try:
+        start_date = request.args.get('start_date', '').strip()
+        end_date = request.args.get('end_date', '').strip()
+        
+        # 페이징 파라미터 처리
+        try:
+            limit = int(request.args.get('limit', 1000))
+            if limit <= 0:
+                limit = 1000
+        except ValueError:
+            limit = 1000
+        
+        try:
+            offset = int(request.args.get('offset', 0))
+            if offset < 0:
+                offset = 0
+        except ValueError:
+            offset = 0
+        
+        if not start_date or not end_date:
+            return jsonify({
+                'error': '시작 날짜와 종료 날짜는 필수입니다.',
+                'required_parameters': ['start_date', 'end_date'],
+                'format': 'YYYY-MM-DD'
+            }), 400
+        
+        trading_data = TradingService.get_trading_data_by_date_range_optimized(
+            start_date, end_date, limit, offset
+        )
+        
+        return jsonify([data.to_dict() for data in trading_data]), 200
+        
+    except Exception as e:
+        logger.error(f"최적화된 날짜 범위 거래 데이터 조회 실패: {str(e)}")
         return jsonify({
             'error': '거래 데이터를 조회하는데 실패했습니다.',
             'message': str(e)

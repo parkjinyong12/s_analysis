@@ -341,7 +341,7 @@ class TradingService:
         stock_code: Optional[str] = None
     ) -> List[StockInvestorTrading]:
         """
-        날짜 범위로 거래 데이터 조회
+        날짜 범위로 거래 데이터 조회 (인덱스 최적화)
         
         Args:
             start_date (str): 시작 날짜 (YYYY-MM-DD)
@@ -352,15 +352,155 @@ class TradingService:
             List[StockInvestorTrading]: 거래 데이터 목록
         """
         try:
+            # 날짜 형식 검증
+            if not TradingService.validate_date_format(start_date):
+                raise ValueError("시작 날짜 형식이 올바르지 않습니다. (YYYY-MM-DD)")
+            if not TradingService.validate_date_format(end_date):
+                raise ValueError("종료 날짜 형식이 올바르지 않습니다. (YYYY-MM-DD)")
+            
+            # 주식 코드가 있는 경우: 복합 인덱스 활용
+            if stock_code and stock_code.strip():
+                if not TradingService.validate_stock_code(stock_code.strip()):
+                    raise ValueError("주식 코드 형식이 올바르지 않습니다. (6자리 숫자)")
+                
+                query = StockInvestorTrading.query.filter(
+                    StockInvestorTrading.stock_code == stock_code.strip(),
+                    StockInvestorTrading.trade_date >= start_date,
+                    StockInvestorTrading.trade_date <= end_date
+                ).order_by(StockInvestorTrading.trade_date.desc())
+            else:
+                # 날짜만으로 조회: 날짜 인덱스 활용
+                query = StockInvestorTrading.query.filter(
+                    StockInvestorTrading.trade_date >= start_date,
+                    StockInvestorTrading.trade_date <= end_date
+                ).order_by(StockInvestorTrading.trade_date.desc())
+            
+            return query.all()
+        except Exception as e:
+            raise Exception(f"날짜 범위 거래 데이터 조회 중 오류 발생: {str(e)}") from e
+
+    @staticmethod
+    def get_trading_data_by_stock_date_range(
+        stock_code: str,
+        start_date: str, 
+        end_date: str,
+        include_price: bool = True,
+        include_institution: bool = True,
+        include_foreigner: bool = True
+    ) -> List[StockInvestorTrading]:
+        """
+        특정 종목의 날짜 범위 거래 데이터 조회 (고성능)
+        
+        Args:
+            stock_code (str): 주식 코드
+            start_date (str): 시작 날짜 (YYYY-MM-DD)
+            end_date (str): 종료 날짜 (YYYY-MM-DD)
+            include_price (bool): 종가 포함 여부
+            include_institution (bool): 기관 데이터 포함 여부
+            include_foreigner (bool): 외국인 데이터 포함 여부
+            
+        Returns:
+            List[StockInvestorTrading]: 거래 데이터 목록
+        """
+        try:
+            # 입력값 검증
+            if not TradingService.validate_stock_code(stock_code):
+                raise ValueError("주식 코드 형식이 올바르지 않습니다. (6자리 숫자)")
+            if not TradingService.validate_date_format(start_date):
+                raise ValueError("시작 날짜 형식이 올바르지 않습니다. (YYYY-MM-DD)")
+            if not TradingService.validate_date_format(end_date):
+                raise ValueError("종료 날짜 형식이 올바르지 않습니다. (YYYY-MM-DD)")
+            
+            # 기본 쿼리 (복합 인덱스 활용)
             query = StockInvestorTrading.query.filter(
+                StockInvestorTrading.stock_code == stock_code,
                 StockInvestorTrading.trade_date >= start_date,
                 StockInvestorTrading.trade_date <= end_date
             )
             
-            if stock_code and stock_code.strip():
-                query = query.filter(StockInvestorTrading.stock_code == stock_code.strip())
+            # 필요한 컬럼만 선택하여 성능 최적화
+            if include_price and include_institution and include_foreigner:
+                # 모든 데이터 포함
+                pass
+            elif include_price and include_institution:
+                # 종가 + 기관 데이터만
+                query = query.with_entities(
+                    StockInvestorTrading.id,
+                    StockInvestorTrading.stock_code,
+                    StockInvestorTrading.stock_name,
+                    StockInvestorTrading.trade_date,
+                    StockInvestorTrading.close_price,
+                    StockInvestorTrading.institution_net_buy,
+                    StockInvestorTrading.institution_accum,
+                    StockInvestorTrading.institution_trend_signal,
+                    StockInvestorTrading.institution_trend_score
+                )
+            elif include_price and include_foreigner:
+                # 종가 + 외국인 데이터만
+                query = query.with_entities(
+                    StockInvestorTrading.id,
+                    StockInvestorTrading.stock_code,
+                    StockInvestorTrading.stock_name,
+                    StockInvestorTrading.trade_date,
+                    StockInvestorTrading.close_price,
+                    StockInvestorTrading.foreigner_net_buy,
+                    StockInvestorTrading.foreigner_accum,
+                    StockInvestorTrading.foreigner_trend_signal,
+                    StockInvestorTrading.foreigner_trend_score
+                )
+            elif include_price:
+                # 종가만
+                query = query.with_entities(
+                    StockInvestorTrading.id,
+                    StockInvestorTrading.stock_code,
+                    StockInvestorTrading.stock_name,
+                    StockInvestorTrading.trade_date,
+                    StockInvestorTrading.close_price
+                )
             
             return query.order_by(StockInvestorTrading.trade_date.desc()).all()
+        except Exception as e:
+            raise Exception(f"종목별 날짜 범위 거래 데이터 조회 중 오류 발생: {str(e)}") from e
+
+    @staticmethod
+    def get_trading_data_by_date_range_optimized(
+        start_date: str, 
+        end_date: str,
+        limit: Optional[int] = None,
+        offset: Optional[int] = None
+    ) -> List[StockInvestorTrading]:
+        """
+        날짜 범위 거래 데이터 조회 (페이징 지원, 고성능)
+        
+        Args:
+            start_date (str): 시작 날짜 (YYYY-MM-DD)
+            end_date (str): 종료 날짜 (YYYY-MM-DD)
+            limit (Optional[int]): 조회할 레코드 수 제한
+            offset (Optional[int]): 건너뛸 레코드 수
+            
+        Returns:
+            List[StockInvestorTrading]: 거래 데이터 목록
+        """
+        try:
+            # 날짜 형식 검증
+            if not TradingService.validate_date_format(start_date):
+                raise ValueError("시작 날짜 형식이 올바르지 않습니다. (YYYY-MM-DD)")
+            if not TradingService.validate_date_format(end_date):
+                raise ValueError("종료 날짜 형식이 올바르지 않습니다. (YYYY-MM-DD)")
+            
+            # 기본 쿼리 (날짜 인덱스 활용)
+            query = StockInvestorTrading.query.filter(
+                StockInvestorTrading.trade_date >= start_date,
+                StockInvestorTrading.trade_date <= end_date
+            ).order_by(StockInvestorTrading.trade_date.desc())
+            
+            # 페이징 적용
+            if offset is not None:
+                query = query.offset(offset)
+            if limit is not None:
+                query = query.limit(limit)
+            
+            return query.all()
         except Exception as e:
             raise Exception(f"날짜 범위 거래 데이터 조회 중 오류 발생: {str(e)}") from e
 

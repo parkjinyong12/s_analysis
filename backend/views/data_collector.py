@@ -33,7 +33,11 @@ collection_status = {
     'end_time': None,
     'error_message': '',
     'task_id': None,
-    'elapsed_time': None
+    'elapsed_time': None,
+    'batches_processed': 0,
+    'memory_cleanups': 0,
+    'current_batch': 0,
+    'total_batches': 0
 }
 
 def update_progress(phase, current_stock='', progress=0, success=0, failed=0, error_msg='', failed_stock=None):
@@ -618,6 +622,62 @@ def test_url(stock_code):
             'status': 'error',
             'error': str(e),
             'timestamp': datetime.now().isoformat()
+        }), 500
+
+@collector_bp.route('/monitor', methods=['GET'])
+@read_only_transaction
+def get_batch_monitoring():
+    """
+    배치 처리 모니터링 정보 조회
+    
+    Returns:
+        JSON: 배치 처리 상태 및 시스템 정보
+    """
+    try:
+        import psutil
+        
+        # 시스템 리소스 정보
+        cpu_percent = psutil.cpu_percent(interval=1)
+        memory = psutil.virtual_memory()
+        disk = psutil.disk_usage('/')
+        
+        # 현재 프로세스 정보
+        process = psutil.Process()
+        process_memory = process.memory_info()
+        
+        monitoring_info = {
+            'system': {
+                'cpu_percent': cpu_percent,
+                'memory_percent': memory.percent,
+                'memory_available_gb': round(memory.available / (1024**3), 2),
+                'disk_percent': disk.percent,
+                'disk_free_gb': round(disk.free / (1024**3), 2)
+            },
+            'process': {
+                'memory_percent': process.memory_percent(),
+                'memory_rss_mb': round(process_memory.rss / (1024**2), 2),
+                'memory_vms_mb': round(process_memory.vms / (1024**2), 2),
+                'cpu_percent': process.cpu_percent(),
+                'num_threads': process.num_threads()
+            },
+            'collection': collection_status,
+            'batch_settings': {
+                'batch_size': DataCollectorService.BATCH_SIZE,
+                'batch_delay': DataCollectorService.BATCH_DELAY,
+                'memory_check_interval': DataCollectorService.MEMORY_CHECK_INTERVAL,
+                'max_memory_usage': DataCollectorService.MAX_MEMORY_USAGE,
+                'session_refresh_interval': DataCollectorService.SESSION_REFRESH_INTERVAL
+            },
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        return jsonify(monitoring_info), 200
+        
+    except Exception as e:
+        logger.error(f"모니터링 정보 조회 실패: {e}")
+        return jsonify({
+            'error': '모니터링 정보 조회 중 오류가 발생했습니다.',
+            'message': str(e)
         }), 500
 
 

@@ -103,7 +103,7 @@ npm run serve
 ## 🌐 접속 정보
 
 - **Frontend**: http://localhost:8080
-- **Backend API**: http://localhost:5000
+- **Backend API**: http://localhost:5001
 
 ## 📡 API 엔드포인트
 

@@ -5,9 +5,12 @@ API 레벨에서 트랜잭션을 안전하게 관리하기 위한 데코레이�
 """
 import functools
 import logging
+import time
 from typing import Callable, Any
 from flask import jsonify
 from backend.extensions import db
+from sqlalchemy.exc import OperationalError
+from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
 
@@ -58,33 +61,70 @@ def safe_transaction(func: Callable) -> Callable:
     """
     @functools.wraps(func)
     def wrapper(*args, **kwargs) -> Any:
-        try:
-            # 함수 실행
-            result = func(*args, **kwargs)
-            
-            # 성공 시 commit
-            db.session.commit()
-            logger.debug(f"트랜잭션 commit 성공: {func.__name__}")
-            
-            return result
-            
-        except ValueError as e:
-            # 검증 오류 시 rollback
-            db.session.rollback()
-            logger.warning(f"트랜잭션 rollback (검증 오류): {func.__name__} - {str(e)}")
-            return jsonify({
-                'error': str(e),
-                'type': 'validation_error'
-            }), 400
-            
-        except Exception as e:
-            # 기타 오류 시 rollback
-            db.session.rollback()
-            logger.error(f"트랜잭션 rollback (시스템 오류): {func.__name__} - {str(e)}")
-            return jsonify({
-                'error': '서버 내부 오류가 발생했습니다.',
-                'type': 'system_error'
-            }), 500
+        max_retries = 3
+        retry_delay = 1
+        
+        for attempt in range(max_retries):
+            try:
+                # 연결 상태 확인
+                try:
+                    db.session.execute(text("SELECT 1"))
+                except Exception as conn_error:
+                    logger.warning(f"데이터베이스 연결 확인 실패, 세션 재생성: {conn_error}")
+                    db.session.close()
+                    db.session.remove()
+                    time.sleep(1)
+                
+                # 함수 실행
+                result = func(*args, **kwargs)
+                
+                # 성공 시 commit
+                db.session.commit()
+                logger.debug(f"트랜잭션 commit 성공: {func.__name__}")
+                
+                return result
+                
+            except OperationalError as e:
+                db.session.rollback()
+                db.session.close()
+                db.session.remove()
+                
+                if "server closed the connection" in str(e).lower() or "connection" in str(e).lower():
+                    if attempt < max_retries - 1:
+                        logger.warning(f"데이터베이스 연결 끊김, {retry_delay}초 후 재시도 ({attempt + 1}/{max_retries}): {func.__name__}")
+                        time.sleep(retry_delay)
+                        retry_delay *= 2
+                        continue
+                    else:
+                        logger.error(f"데이터베이스 연결 오류 (최대 재시도 초과): {func.__name__} - {str(e)}")
+                        return jsonify({
+                            'error': '데이터베이스 연결 오류가 발생했습니다.',
+                            'type': 'database_error'
+                        }), 503
+                else:
+                    logger.error(f"데이터베이스 오류: {func.__name__} - {str(e)}")
+                    return jsonify({
+                        'error': '데이터베이스 오류가 발생했습니다.',
+                        'type': 'database_error'
+                    }), 503
+                    
+            except ValueError as e:
+                # 검증 오류 시 rollback
+                db.session.rollback()
+                logger.warning(f"트랜잭션 rollback (검증 오류): {func.__name__} - {str(e)}")
+                return jsonify({
+                    'error': str(e),
+                    'type': 'validation_error'
+                }), 400
+                
+            except Exception as e:
+                # 기타 오류 시 rollback
+                db.session.rollback()
+                logger.error(f"트랜잭션 rollback (시스템 오류): {func.__name__} - {str(e)}")
+                return jsonify({
+                    'error': '서버 내부 오류가 발생했습니다.',
+                    'type': 'system_error'
+                }), 500
     
     return wrapper
 
@@ -102,12 +142,43 @@ def read_only_transaction(func: Callable) -> Callable:
     """
     @functools.wraps(func)
     def wrapper(*args, **kwargs) -> Any:
-        try:
-            result = func(*args, **kwargs)
-            return result
-        except Exception as e:
-            logger.error(f"읽기 작업 실패: {func.__name__} - {str(e)}")
-            raise
+        max_retries = 3
+        retry_delay = 1
+        
+        for attempt in range(max_retries):
+            try:
+                # 연결 상태 확인
+                try:
+                    db.session.execute(text("SELECT 1"))
+                except Exception as conn_error:
+                    logger.warning(f"데이터베이스 연결 확인 실패, 세션 재생성: {conn_error}")
+                    db.session.close()
+                    db.session.remove()
+                    time.sleep(1)
+                
+                result = func(*args, **kwargs)
+                return result
+                
+            except OperationalError as e:
+                db.session.close()
+                db.session.remove()
+                
+                if "server closed the connection" in str(e).lower() or "connection" in str(e).lower():
+                    if attempt < max_retries - 1:
+                        logger.warning(f"데이터베이스 연결 끊김, {retry_delay}초 후 재시도 ({attempt + 1}/{max_retries}): {func.__name__}")
+                        time.sleep(retry_delay)
+                        retry_delay *= 2
+                        continue
+                    else:
+                        logger.error(f"데이터베이스 연결 오류 (최대 재시도 초과): {func.__name__} - {str(e)}")
+                        raise
+                else:
+                    logger.error(f"데이터베이스 오류: {func.__name__} - {str(e)}")
+                    raise
+                    
+            except Exception as e:
+                logger.error(f"읽기 작업 실패: {func.__name__} - {str(e)}")
+                raise
     
     return wrapper
 
@@ -122,6 +193,15 @@ def bulk_transaction(operations: list) -> bool:
         bool: 모든 작업이 성공하면 True, 실패하면 False
     """
     try:
+        # 연결 상태 확인
+        try:
+            db.session.execute(text("SELECT 1"))
+        except Exception as conn_error:
+            logger.warning(f"데이터베이스 연결 확인 실패, 세션 재생성: {conn_error}")
+            db.session.close()
+            db.session.remove()
+            time.sleep(1)
+        
         for operation in operations:
             operation()
         
@@ -129,7 +209,40 @@ def bulk_transaction(operations: list) -> bool:
         logger.info(f"벌크 트랜잭션 성공: {len(operations)}개 작업")
         return True
         
+    except OperationalError as e:
+        db.session.rollback()
+        db.session.close()
+        db.session.remove()
+        logger.error(f"벌크 트랜잭션 실패 (연결 오류): {str(e)}")
+        return False
+        
     except Exception as e:
         db.session.rollback()
         logger.error(f"벌크 트랜잭션 실패: {str(e)}")
-        return False 
+        return False
+
+def check_database_connection() -> bool:
+    """
+    데이터베이스 연결 상태를 확인합니다.
+    
+    Returns:
+        bool: 연결이 정상이면 True, 아니면 False
+    """
+    try:
+        db.session.execute(text("SELECT 1"))
+        return True
+    except Exception as e:
+        logger.warning(f"데이터베이스 연결 확인 실패: {e}")
+        return False
+
+def reset_database_session():
+    """
+    데이터베이스 세션을 재설정합니다.
+    연결 오류 발생 시 호출하여 세션을 초기화합니다.
+    """
+    try:
+        db.session.close()
+        db.session.remove()
+        logger.info("데이터베이스 세션 재설정 완료")
+    except Exception as e:
+        logger.error(f"데이터베이스 세션 재설정 실패: {e}") 

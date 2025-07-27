@@ -15,7 +15,10 @@ from backend.models.stock import StockList
 from backend.services.stock_service import StockService
 from backend.services.trading_service import TradingService
 import re
+import psutil
+import gc
 from sqlalchemy.exc import OperationalError
+from sqlalchemy import text
 
 # 로깅 설정
 logger = logging.getLogger(__name__)
@@ -38,7 +41,52 @@ class DataCollectorService:
     BASE_URL = "https://finance.naver.com/item/frgn.naver"
     REQUEST_DELAY = 1.0  # 요청 간 대기 시간 (초)
     
+    # 장시간 배치 처리를 위한 설정
+    BATCH_SIZE = 50  # 한 번에 처리할 주식 수
+    BATCH_DELAY = 30  # 배치 간 대기 시간 (초)
+    MEMORY_CHECK_INTERVAL = 100  # 메모리 체크 간격 (주식 수)
+    MAX_MEMORY_USAGE = 80  # 최대 메모리 사용률 (%)
+    SESSION_REFRESH_INTERVAL = 500  # 세션 새로고침 간격 (주식 수)
+    
     # 주식 목록은 DB의 stock_list 테이블에서 관리됩니다.
+    
+    @staticmethod
+    def check_memory_usage() -> float:
+        """
+        현재 메모리 사용률을 확인합니다.
+        
+        Returns:
+            float: 메모리 사용률 (%)
+        """
+        try:
+            process = psutil.Process()
+            memory_percent = process.memory_percent()
+            logger.debug(f"현재 메모리 사용률: {memory_percent:.1f}%")
+            return memory_percent
+        except Exception as e:
+            logger.warning(f"메모리 사용률 확인 실패: {e}")
+            return 0.0
+    
+    @staticmethod
+    def cleanup_memory():
+        """
+        메모리 정리를 수행합니다.
+        """
+        try:
+            # 가비지 컬렉션 실행
+            collected = gc.collect()
+            logger.debug(f"가비지 컬렉션 완료: {collected}개 객체 정리")
+            
+            # 데이터베이스 세션 정리
+            db.session.close()
+            db.session.remove()
+            
+            # 메모리 사용률 재확인
+            memory_percent = DataCollectorService.check_memory_usage()
+            logger.info(f"메모리 정리 후 사용률: {memory_percent:.1f}%")
+            
+        except Exception as e:
+            logger.warning(f"메모리 정리 실패: {e}")
     
     @staticmethod
     def test_url_access(stock_code: str) -> bool:
@@ -376,6 +424,14 @@ class DataCollectorService:
             # 재시도 로직
             for attempt in range(max_retries):
                 try:
+                    # 연결 상태 확인 및 재연결
+                    try:
+                        db.session.execute(text("SELECT 1"))
+                    except Exception as conn_error:
+                        logger.warning(f"데이터베이스 연결 확인 실패, 세션 재생성: {conn_error}")
+                        db.session.close()
+                        db.session.remove()
+                    
                     # 모든 데이터를 세션에 추가
                     for trading_data in new_data_list:
                         db.session.add(trading_data)
@@ -386,13 +442,27 @@ class DataCollectorService:
                     logger.debug(f"저장 완료: {stock_code} ({len(new_data_list)}건)")
                     break  # 성공하면 종료
                     
+                except OperationalError as e:
+                    db.session.rollback()
+                    db.session.close()
+                    db.session.remove()
+                    
+                    if "server closed the connection" in str(e).lower() or "connection" in str(e).lower():
+                        logger.warning(f"데이터베이스 연결 끊김, {retry_delay}초 후 재시도 ({attempt + 1}/{max_retries}): {stock_code}")
+                        time.sleep(retry_delay)
+                        retry_delay *= 2
+                        continue
+                    else:
+                        logger.error(f"데이터베이스 오류: {stock_code}, 시도 횟수: {attempt + 1}, 오류: {e}")
+                        return False
+                        
                 except Exception as e:
                     db.session.rollback()
                     
                     if "database is locked" in str(e).lower() and attempt < max_retries - 1:
                         logger.warning(f"데이터베이스 잠금, {retry_delay}초 후 재시도 ({attempt + 1}/{max_retries}): {stock_code}")
                         time.sleep(retry_delay)
-                        retry_delay *= 1.5  # 더 완만한 백오프
+                        retry_delay *= 1.5
                         continue
                     else:
                         logger.error(f"한 종목 데이터 저장 실패: {stock_code}, 시도 횟수: {attempt + 1}, 오류: {e}")
@@ -457,7 +527,7 @@ class DataCollectorService:
     @staticmethod  
     def collect_all_stocks_data(years: int = 3, max_pages: int = 10) -> Dict[str, any]:
         """
-        모든 주식의 거래 데이터를 수집 (Flask-Executor 방식)
+        모든 주식의 거래 데이터를 수집 (배치 처리 방식)
         
         Args:
             years (int): 수집할 기간 (년 단위)
@@ -472,7 +542,9 @@ class DataCollectorService:
             'total_stocks': 0,
             'success_stocks': 0,
             'failed_stocks': 0,
-            'failed_list': []
+            'failed_list': [],
+            'batches_processed': 0,
+            'memory_cleanups': 0
         }
         
         try:
@@ -486,30 +558,88 @@ class DataCollectorService:
                 results['error'] = "DB에 등록된 주식이 없습니다."
                 return results
             
-            # 3. 각 주식별 데이터 수집
-            for stock in stocks:
-                try:
-                    success = DataCollectorService.collect_and_save_trading_data(
-                        stock.stock_code, stock.stock_name, years, max_pages
-                    )
-                    
-                    if success:
-                        results['success_stocks'] += 1
-                    else:
-                        results['failed_stocks'] += 1
-                        results['failed_list'].append(f"{stock.stock_code} {stock.stock_name}")
-                        logger.warning(f"수집 실패: {stock.stock_code} {stock.stock_name}")
-                    
-                    # 요청 간 대기
-                    time.sleep(DataCollectorService.REQUEST_DELAY)
-                    
-                except Exception as e:
-                    results['failed_stocks'] += 1
-                    results['failed_list'].append(f"{stock.stock_code} {stock.stock_name}: {str(e)}")
-                    logger.error(f"주식 데이터 수집 중 오류: {stock.stock_code}, {e}")
-                    continue
+            # 2. 배치 단위로 처리
+            total_batches = (len(stocks) + DataCollectorService.BATCH_SIZE - 1) // DataCollectorService.BATCH_SIZE
+            logger.info(f"총 {total_batches}개 배치로 처리 예정 (배치 크기: {DataCollectorService.BATCH_SIZE})")
             
-            logger.info(f"전체 데이터 수집 완료: 성공 {results['success_stocks']}개, 실패 {results['failed_stocks']}개")
+            for batch_idx in range(total_batches):
+                start_idx = batch_idx * DataCollectorService.BATCH_SIZE
+                end_idx = min(start_idx + DataCollectorService.BATCH_SIZE, len(stocks))
+                batch_stocks = stocks[start_idx:end_idx]
+                
+                logger.info(f"배치 {batch_idx + 1}/{total_batches} 처리 시작 ({len(batch_stocks)}개 주식)")
+                
+                # 배치 내 각 주식 처리
+                for stock_idx, stock in enumerate(batch_stocks):
+                    current_stock_count = start_idx + stock_idx + 1
+                    
+                    try:
+                        # 메모리 사용률 체크
+                        if current_stock_count % DataCollectorService.MEMORY_CHECK_INTERVAL == 0:
+                            memory_percent = DataCollectorService.check_memory_usage()
+                            if memory_percent > DataCollectorService.MAX_MEMORY_USAGE:
+                                logger.warning(f"메모리 사용률 높음 ({memory_percent:.1f}%), 정리 수행")
+                                DataCollectorService.cleanup_memory()
+                                results['memory_cleanups'] += 1
+                        
+                        # 세션 새로고침
+                        if current_stock_count % DataCollectorService.SESSION_REFRESH_INTERVAL == 0:
+                            logger.info(f"세션 새로고침 수행 (처리된 주식: {current_stock_count}개)")
+                            db.session.close()
+                            db.session.remove()
+                            time.sleep(2)
+                        
+                        # 데이터베이스 연결 상태 확인
+                        try:
+                            db.session.execute(text("SELECT 1"))
+                        except Exception as conn_error:
+                            logger.warning(f"데이터베이스 연결 확인 실패, 세션 재생성: {conn_error}")
+                            db.session.close()
+                            db.session.remove()
+                            time.sleep(2)
+                        
+                        success = DataCollectorService.collect_and_save_trading_data(
+                            stock.stock_code, stock.stock_name, years, max_pages
+                        )
+                        
+                        if success:
+                            results['success_stocks'] += 1
+                        else:
+                            results['failed_stocks'] += 1
+                            results['failed_list'].append(f"{stock.stock_code} {stock.stock_name}")
+                            logger.warning(f"수집 실패: {stock.stock_code} {stock.stock_name}")
+                        
+                        # 요청 간 대기
+                        time.sleep(DataCollectorService.REQUEST_DELAY)
+                        
+                    except OperationalError as e:
+                        results['failed_stocks'] += 1
+                        results['failed_list'].append(f"{stock.stock_code} {stock.stock_name}: 연결 오류")
+                        logger.error(f"데이터베이스 연결 오류: {stock.stock_code}, {e}")
+                        
+                        # 연결 재생성
+                        try:
+                            db.session.close()
+                            db.session.remove()
+                            time.sleep(3)
+                        except:
+                            pass
+                        continue
+                        
+                    except Exception as e:
+                        results['failed_stocks'] += 1
+                        results['failed_list'].append(f"{stock.stock_code} {stock.stock_name}: {str(e)}")
+                        logger.error(f"주식 데이터 수집 중 오류: {stock.stock_code}, {e}")
+                        continue
+                
+                # 배치 완료 후 대기
+                if batch_idx < total_batches - 1:  # 마지막 배치가 아니면
+                    logger.info(f"배치 {batch_idx + 1} 완료, {DataCollectorService.BATCH_DELAY}초 대기")
+                    time.sleep(DataCollectorService.BATCH_DELAY)
+                
+                results['batches_processed'] += 1
+            
+            logger.info(f"전체 데이터 수집 완료: 성공 {results['success_stocks']}개, 실패 {results['failed_stocks']}개, 배치 {results['batches_processed']}개, 메모리 정리 {results['memory_cleanups']}회")
             return results
             
         except Exception as e:
