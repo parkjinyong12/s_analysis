@@ -95,6 +95,7 @@ def collect_data_background(years: int = 3, max_pages: int = 10):
         
         success_count = 0
         failed_count = 0
+        progress = 0  # 초기값 설정
         
         for i, stock in enumerate(stocks):
             if not collection_status['is_running']:  # 중단 요청 확인

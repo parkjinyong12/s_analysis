@@ -86,6 +86,10 @@ export const API_ENDPOINTS = {
   
   // Stock API
   STOCKS: '/stocks',
+  STOCKS_BULK_CREATE: '/stocks/bulk-create',
+  STOCKS_COLLECT_LIST: '/stocks/collect-list',
+  STOCKS_AUTO_ADD: '/stocks/auto-add',
+  STOCKS_UPLOAD_EXCEL: '/stocks/upload-excel',
   
   // Trading API
   TRADING: {
@@ -120,6 +124,16 @@ export const API_ENDPOINTS = {
     ENDPOINTS: '/api-test/endpoints',
     DATABASE: '/api-test/database',
     DATABASE_INIT: '/api-test/database/init'
+  },
+  
+  // History
+  HISTORY: {
+    DATA: '/history/data',
+    SYSTEM: '/history/system',
+    LATEST: '/history/latest',
+    SUMMARY: '/history/summary',
+    STATS: '/history/stats',
+    CLEAR: '/history/clear'
   }
 };
 

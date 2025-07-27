@@ -108,7 +108,7 @@ class DataCollectorService:
         Returns:
             Optional[pd.DataFrame]: 수집된 데이터 또는 None
         """
-        logger.info(f"=== 데이터 수집 시작: {stock_code} (최대 {max_pages}페이지, {years}년치) ===")
+        logger.debug(f"데이터 수집 시작: {stock_code}")
         
         all_data_list = []
         cutoff_date = datetime.now() - timedelta(days=years * 365)
@@ -125,7 +125,7 @@ class DataCollectorService:
             try:
                 # 페이지별 URL 구성
                 url = f"https://finance.naver.com/item/frgn.naver?code={stock_code}&page={page}"
-                logger.info(f"페이지 {page} 데이터 요청: {url}")
+                logger.debug(f"페이지 {page} 요청: {stock_code}")
                 
                 response = requests.get(url, headers=headers, timeout=10)
                 response.raise_for_status()
@@ -135,14 +135,14 @@ class DataCollectorService:
                 
                 # 모든 테이블 검사하여 데이터 테이블 찾기
                 all_tables = soup.find_all('table')
-                logger.info(f"페이지 {page}: 총 {len(all_tables)}개 테이블 발견")
+                logger.debug(f"페이지 {page}: {len(all_tables)}개 테이블")
                 
                 data_table = None
                 
                 # 각 테이블을 검사하여 날짜 데이터가 있는 테이블 찾기
                 for i, table in enumerate(all_tables):
                     rows = table.find_all('tr')
-                    logger.info(f"페이지 {page} 테이블 {i}: {len(rows)}개 행")
+                    logger.debug(f"페이지 {page} 테이블 {i}: {len(rows)}행")
                     
                     # 충분한 행이 있는 테이블만 검사
                     if len(rows) < 5:
@@ -156,25 +156,24 @@ class DataCollectorService:
                             # 날짜 패턴 확인 (YYYY.MM.DD 형식)
                             if re.match(r'\d{4}\.\d{2}\.\d{2}', first_col_text):
                                 data_table = table
-                                logger.info(f"페이지 {page}: 날짜 데이터 테이블 발견 (테이블 {i})")
+                                logger.debug(f"페이지 {page}: 데이터 테이블 발견")
                                 break
                     
                     if data_table:
                         break
                 
                 if not data_table:
-                    logger.warning(f"페이지 {page}: 날짜 데이터가 있는 테이블을 찾을 수 없음")
+                    logger.debug(f"페이지 {page}: 데이터 테이블 없음, 가장 큰 테이블 사용")
                     # 가장 큰 테이블 사용
                     if all_tables:
                         data_table = max(all_tables, key=lambda t: len(t.find_all('tr')))
-                        logger.info(f"페이지 {page}: 가장 큰 테이블 사용 ({len(data_table.find_all('tr'))}개 행)")
                     else:
-                        logger.warning(f"페이지 {page}: 테이블을 찾을 수 없음, 다음 페이지로 이동")
+                        logger.warning(f"페이지 {page}: 테이블을 찾을 수 없음")
                         continue
                 
                 # 데이터 추출
                 rows = data_table.find_all('tr')
-                logger.info(f"페이지 {page}: 선택된 테이블 행 수: {len(rows)}")
+                logger.debug(f"페이지 {page}: {len(rows)}행 처리")
                 
                 page_data_list = []
                 found_data_in_page = False
@@ -236,16 +235,16 @@ class DataCollectorService:
                             close_price = int(close_price_text) if close_price_text and close_price_text.isdigit() else 0
                             
                             # 실제 네이버 금융 구조에 맞게 수정:
-                            # cols[4]: 기관 순매수
-                            # cols[5]: 외국인 순매수
+                            # cols[5]: 기관 순매수
+                            # cols[6]: 외국인 순매수
                             # 누적 데이터는 크롤링에서 수집되지 않음 (나중에 계산으로 처리)
                             
-                            # 기관 순매수 (5번째 컬럼)
-                            institution_net_text = cols[4].get_text(strip=True).replace(',', '').replace('+', '').replace('--', '0')
+                            # 기관 순매수 (6번째 컬럼)
+                            institution_net_text = cols[5].get_text(strip=True).replace(',', '').replace('+', '').replace('--', '0')
                             institution_net = int(institution_net_text) if institution_net_text and institution_net_text.lstrip('-').isdigit() else 0
 
-                            # 외국인 순매수 (6번째 컬럼)  
-                            foreigner_net_text = cols[5].get_text(strip=True).replace(',', '').replace('+', '').replace('--', '0')
+                            # 외국인 순매수 (7번째 컬럼)  
+                            foreigner_net_text = cols[6].get_text(strip=True).replace(',', '').replace('+', '').replace('--', '0')
                             foreigner_net = int(foreigner_net_text) if foreigner_net_text and foreigner_net_text.lstrip('-').isdigit() else 0
 
                             # 누적 데이터는 크롤링에서 수집하지 않음 (기본값 0으로 설정)
@@ -367,53 +366,54 @@ class DataCollectorService:
                 logger.info(f"저장할 새 데이터가 없음: {stock_code}")
                 return True  # 성공으로 처리 (이미 모든 데이터가 존재)
 
-            # 3단계: 새로운 데이터를 작은 배치로 나누어 저장
+            # 3단계: 한 종목의 모든 데이터를 한 번에 저장
             max_retries = 3
             retry_delay = 1
-            batch_size = 50  # 배치 크기를 50으로 제한
             
-            total_saved = 0
+            logger.debug(f"데이터 저장: {stock_code} ({len(new_data_list)}건)")
             
-            # 데이터를 배치 단위로 나누어 처리
-            for i in range(0, len(new_data_list), batch_size):
-                batch_data = new_data_list[i:i + batch_size]
-                batch_num = (i // batch_size) + 1
-                total_batches = (len(new_data_list) + batch_size - 1) // batch_size
-                
-                logger.info(f"배치 {batch_num}/{total_batches} 저장 시작: {stock_code}, {len(batch_data)}건")
-                
-                # 배치별 재시도 로직
-                for attempt in range(max_retries):
-                    try:
-                        # 현재 배치 데이터를 세션에 추가
-                        for trading_data in batch_data:
-                            db.session.add(trading_data)
-                        
-                        # 배치 커밋
-                        db.session.commit()
-                        total_saved += len(batch_data)
-                        
-                        logger.info(f"배치 {batch_num}/{total_batches} 저장 성공: {stock_code}, {len(batch_data)}건")
-                        break  # 성공하면 다음 배치로
-                        
-                    except Exception as e:
-                        db.session.rollback()
-                        
-                        if "database is locked" in str(e).lower() and attempt < max_retries - 1:
-                            logger.warning(f"배치 {batch_num} 데이터베이스 잠금, {retry_delay}초 후 재시도 ({attempt + 1}/{max_retries}): {stock_code}")
-                            time.sleep(retry_delay)
-                            retry_delay *= 1.5  # 더 완만한 백오프
-                            continue
-                        else:
-                            logger.error(f"배치 {batch_num} 저장 실패: {stock_code}, 시도 횟수: {attempt + 1}, 오류: {e}")
-                            # 실패한 배치가 있어도 다음 배치 계속 진행
-                            break
-                
-                # 배치 간 잠시 대기 (데이터베이스 부하 감소)
-                if i + batch_size < len(new_data_list):
-                    time.sleep(0.1)
+            # 재시도 로직
+            for attempt in range(max_retries):
+                try:
+                    # 모든 데이터를 세션에 추가
+                    for trading_data in new_data_list:
+                        db.session.add(trading_data)
+                    
+                    # 한 번에 커밋
+                    db.session.commit()
+                    
+                    logger.debug(f"저장 완료: {stock_code} ({len(new_data_list)}건)")
+                    break  # 성공하면 종료
+                    
+                except Exception as e:
+                    db.session.rollback()
+                    
+                    if "database is locked" in str(e).lower() and attempt < max_retries - 1:
+                        logger.warning(f"데이터베이스 잠금, {retry_delay}초 후 재시도 ({attempt + 1}/{max_retries}): {stock_code}")
+                        time.sleep(retry_delay)
+                        retry_delay *= 1.5  # 더 완만한 백오프
+                        continue
+                    else:
+                        logger.error(f"한 종목 데이터 저장 실패: {stock_code}, 시도 횟수: {attempt + 1}, 오류: {e}")
+                        return False
             
-            logger.info(f"전체 데이터 저장 완료: {stock_code}, {total_saved}/{len(new_data_list)}건 저장")
+            total_saved = len(new_data_list)
+            
+            logger.debug(f"저장 완료: {stock_code} ({total_saved}건)")
+            
+            # 히스토리 로깅 (배치 처리 완료 후)
+            if total_saved > 0:
+                try:
+                    from backend.services.history_service import HistoryService
+                    HistoryService.log_data_change(
+                        table_name='stock_investor_trading',
+                        record_id=None,  # 배치 처리이므로 특정 ID 없음
+                        action='CREATE',
+                        description=f'데이터 수집으로 {total_saved}건의 거래 데이터 생성: {stock_code} ({stock_name})'
+                    )
+                except Exception as e:
+                    logger.warning(f"히스토리 로깅 실패: {e}")
+            
             return total_saved > 0
             
         except Exception as e:
@@ -488,15 +488,12 @@ class DataCollectorService:
             # 3. 각 주식별 데이터 수집
             for stock in stocks:
                 try:
-                    logger.info(f"데이터 수집 중: {stock.stock_code} {stock.stock_name}")
-                    
                     success = DataCollectorService.collect_and_save_trading_data(
                         stock.stock_code, stock.stock_name, years, max_pages
                     )
                     
                     if success:
                         results['success_stocks'] += 1
-                        logger.info(f"수집 완료: {stock.stock_code} {stock.stock_name}")
                     else:
                         results['failed_stocks'] += 1
                         results['failed_list'].append(f"{stock.stock_code} {stock.stock_name}")
@@ -668,6 +665,19 @@ class DataCollectorService:
             deleted_count = StockInvestorTrading.query.filter_by(stock_code=stock_code).delete()
             db.session.commit()
             
+            # 히스토리 로깅
+            if deleted_count > 0:
+                try:
+                    from backend.services.history_service import HistoryService
+                    HistoryService.log_data_change(
+                        table_name='stock_investor_trading',
+                        record_id=None,  # 전체 삭제이므로 특정 ID 없음
+                        action='DELETE',
+                        description=f'종목별 데이터 삭제: {stock_code} ({deleted_count}건)'
+                    )
+                except Exception as e:
+                    logger.warning(f"히스토리 로깅 실패: {e}")
+            
             logger.info(f"거래 데이터 초기화 완료: {stock_code}, {deleted_count}건 삭제")
             return True
             
@@ -702,6 +712,19 @@ class DataCollectorService:
             # 모든 거래 데이터 삭제
             deleted_count = StockInvestorTrading.query.delete()
             db.session.commit()
+            
+            # 히스토리 로깅
+            if deleted_count > 0:
+                try:
+                    from backend.services.history_service import HistoryService
+                    HistoryService.log_data_change(
+                        table_name='stock_investor_trading',
+                        record_id=None,  # 전체 삭제이므로 특정 ID 없음
+                        action='DELETE',
+                        description=f'전체 거래 데이터 삭제: {deleted_count}건'
+                    )
+                except Exception as e:
+                    logger.warning(f"히스토리 로깅 실패: {e}")
             
             logger.info(f"전체 거래 데이터 초기화 완료: {deleted_count}건 삭제")
             

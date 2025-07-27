@@ -4,6 +4,7 @@ import SampleBoard from '../features/sample/SampleBoard.vue'
 import Sample2Board from '../features/sample2/Sample2Board.vue'
 import StockBoard from '../features/stock/StockBoard.vue'
 import TradingBoard from '../features/trading/TradingBoard.vue'
+import HistoryBoard from '../features/history/HistoryBoard.vue'
 import DataCollector from '../features/collector/DataCollector.vue'
 import ApiTest from '../features/api-test/ApiTest.vue'
 import ApiSettings from '../features/settings/ApiSettings.vue'
@@ -33,6 +34,11 @@ const routes = [
     path: '/trading',
     name: 'Trading',
     component: TradingBoard
+  },
+  {
+    path: '/history',
+    name: 'History',
+    component: HistoryBoard
   },
   {
     path: '/collector',

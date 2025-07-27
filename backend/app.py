@@ -23,6 +23,7 @@ def create_app():
     from backend.views.trading import trading_bp
     from backend.views.data_collector import collector_bp
     from backend.views.api_test import api_test_bp
+    from backend.views.history import history_bp
     
     app.register_blueprint(user_bp)
     app.register_blueprint(sample_bp)
@@ -30,6 +31,7 @@ def create_app():
     app.register_blueprint(trading_bp)
     app.register_blueprint(collector_bp)
     app.register_blueprint(api_test_bp)
+    app.register_blueprint(history_bp)
     
     # 데이터베이스 테이블 생성 및 WAL 모드 설정
     with app.app_context():

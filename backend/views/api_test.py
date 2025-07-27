@@ -76,6 +76,13 @@ def test_all_endpoints():
         # API Test
         {'name': 'Health Check', 'method': 'GET', 'url': f'{base_url}/api-test/health', 'expected_status': 200},
         {'name': 'Database 테스트', 'method': 'GET', 'url': f'{base_url}/api-test/database', 'expected_status': 200},
+        
+        # History API
+        {'name': 'History 통계', 'method': 'GET', 'url': f'{base_url}/history/stats', 'expected_status': 200},
+        {'name': 'History 최근 활동', 'method': 'GET', 'url': f'{base_url}/history/latest', 'expected_status': 200},
+        {'name': 'History 활동 요약', 'method': 'GET', 'url': f'{base_url}/history/summary', 'expected_status': 200},
+        {'name': 'History 데이터 히스토리', 'method': 'GET', 'url': f'{base_url}/history/data', 'expected_status': 200},
+        {'name': 'History 시스템 로그', 'method': 'GET', 'url': f'{base_url}/history/system', 'expected_status': 200},
     ]
     
     for endpoint in endpoints:
@@ -355,6 +362,9 @@ def reset_database():
         from backend.models.trading import StockInvestorTrading
         from backend.models.user import User
         
+        # 삭제 전 거래 데이터 개수 확인
+        trading_count = StockInvestorTrading.query.count()
+        
         # 모든 데이터 삭제
         StockInvestorTrading.query.delete()
         StockList.query.delete()
@@ -362,6 +372,19 @@ def reset_database():
         User.query.delete()
         
         db.session.commit()
+        
+        # 히스토리 로깅 (거래 데이터가 있었던 경우에만)
+        if trading_count > 0:
+            try:
+                from backend.services.history_service import HistoryService
+                HistoryService.log_data_change(
+                    table_name='stock_investor_trading',
+                    record_id=None,  # 전체 삭제이므로 특정 ID 없음
+                    action='DELETE',
+                    description=f'API 테스트 데이터 초기화로 거래 데이터 삭제: {trading_count}건'
+                )
+            except Exception as e:
+                logger.warning(f"히스토리 로깅 실패: {e}")
         
         return jsonify({
             'status': 'success',

@@ -7,6 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy import or_
 from backend.models.trading import StockInvestorTrading
 from backend.extensions import db
+from backend.services.history_service import HistoryService
 import re
 
 
@@ -169,6 +170,18 @@ class TradingService:
             
             db.session.add(trading_data)
             db.session.commit()
+            
+            # 히스토리 로깅
+            try:
+                HistoryService.log_data_change(
+                    table_name='stock_investor_trading',
+                    record_id=trading_data.id,
+                    action='CREATE',
+                    description=f'새 거래 데이터 생성: {stock_code} ({stock_name}) - {trade_date}'
+                )
+            except Exception as e:
+                # 히스토리 로깅 실패는 무시 (주요 기능에 영향 없도록)
+                pass
             
             return trading_data
             
@@ -423,6 +436,19 @@ class TradingService:
             )
             
             db.session.commit()
+            
+            # 히스토리 로깅
+            try:
+                HistoryService.log_data_change(
+                    table_name='stock_investor_trading',
+                    record_id=trading_data.id,
+                    action='UPDATE',
+                    description=f'거래 데이터 업데이트: {trading_data.stock_code} ({trading_data.stock_name}) - {trading_data.trade_date}'
+                )
+            except Exception as e:
+                # 히스토리 로깅 실패는 무시 (주요 기능에 영향 없도록)
+                pass
+            
             return trading_data
             
         except Exception as e:
@@ -445,8 +471,23 @@ class TradingService:
             if not trading_data:
                 return False
             
+            # 삭제 전 정보 저장 (히스토리용)
+            stock_info = f"{trading_data.stock_code} ({trading_data.stock_name}) - {trading_data.trade_date}"
+            
             db.session.delete(trading_data)
             db.session.commit()
+            
+            # 히스토리 로깅
+            try:
+                HistoryService.log_data_change(
+                    table_name='stock_investor_trading',
+                    record_id=trading_id,
+                    action='DELETE',
+                    description=f'거래 데이터 삭제: {stock_info}'
+                )
+            except Exception as e:
+                # 히스토리 로깅 실패는 무시 (주요 기능에 영향 없도록)
+                pass
             
             return True
             

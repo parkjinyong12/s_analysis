@@ -243,10 +243,12 @@ export default {
     },
 
     startStatusPolling() {
-      // 2초마다 상태 업데이트
+      // 데이터 수집이 실행 중일 때만 1초마다 상태 업데이트
       this.statusInterval = setInterval(() => {
-        this.loadStatus()
-      }, 2000)
+        if (this.status.is_running) {
+          this.loadStatus()
+        }
+      }, 1000)
     },
 
     stopStatusPolling() {

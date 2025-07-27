@@ -377,6 +377,8 @@ export default {
       }
     },
     
+
+    
     /**
      * 결과 초기화
      */
@@ -626,6 +628,8 @@ export default {
 .btn-success:hover:not(:disabled) {
   background: #388e3c;
 }
+
+
 
 /* 에러 메시지 */
 .error-message {

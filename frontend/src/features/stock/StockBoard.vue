@@ -2,9 +2,14 @@
   <div class="stock-board">
     <div class="board-header">
       <h2>📈 주식 목록 관리</h2>
-      <button @click="showCreateModal = true" class="btn btn-primary">
-        ➕ 새 주식 등록
-      </button>
+      <div class="header-actions">
+        <button @click="showExcelUploadModal = true" class="btn btn-success">
+          📊 엑셀 업로드
+        </button>
+        <button @click="showCreateModal = true" class="btn btn-primary">
+          ➕ 새 주식 등록
+        </button>
+      </div>
     </div>
 
     <!-- 검색 바 -->
@@ -131,6 +136,138 @@
         </form>
       </div>
     </div>
+
+    <!-- 엑셀 업로드 모달 -->
+    <div v-if="showExcelUploadModal" class="modal-overlay" @click="closeModal">
+      <div class="modal excel-upload-modal" @click.stop>
+        <div class="modal-header">
+          <h3>📊 엑셀/CSV 파일 업로드</h3>
+          <button @click="closeModal" class="modal-close">✕</button>
+        </div>
+        
+        <div class="modal-content">
+          <div class="upload-section">
+            <div class="file-upload-area" 
+                 @click="triggerFileInput"
+                 @dragover.prevent
+                 @drop.prevent="handleFileDrop"
+                 :class="{ 'dragover': isDragOver }">
+              <input 
+                ref="fileInput"
+                type="file" 
+                accept=".xlsx,.xls,.csv"
+                @change="handleFileSelect"
+                style="display: none;"
+              />
+              <div class="upload-icon">📁</div>
+              <p>클릭하거나 파일을 드래그하여 엑셀/CSV 파일을 선택하세요</p>
+              <p class="file-info">지원 형식: .xlsx, .xls, .csv</p>
+            </div>
+            
+            <div v-if="selectedFile" class="selected-file">
+              <p>선택된 파일: <strong>{{ selectedFile.name }}</strong></p>
+              <button @click="removeFile" class="btn btn-sm btn-secondary">파일 제거</button>
+            </div>
+          </div>
+
+          <div class="excel-format-info">
+            <h4>📋 파일 형식</h4>
+            <div class="format-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>컬럼명</th>
+                    <th>설명</th>
+                    <th>필수/선택</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><code>단축코드</code></td>
+                    <td>6자리 주식 코드</td>
+                    <td><span class="required">필수</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>한글 종목명</code></td>
+                    <td>주식명</td>
+                    <td><span class="required">필수</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>상장일</code></td>
+                    <td>상장 날짜 (YYYY.MM.DD)</td>
+                    <td><span class="optional">선택</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>시장구분</code></td>
+                    <td>KOSPI/KOSDAQ</td>
+                    <td><span class="optional">선택</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>액면가</code></td>
+                    <td>액면가</td>
+                    <td><span class="optional">선택</span></td>
+                  </tr>
+                  <tr>
+                    <td><code>상장주식수</code></td>
+                    <td>상장 주식 수</td>
+                    <td><span class="optional">선택</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div v-if="uploadResult" class="upload-result">
+            <h4>📊 업로드 결과</h4>
+            <div class="result-summary">
+              <div class="result-item">
+                <span class="label">총 행 수:</span>
+                <span class="value">{{ uploadResult.total_rows }}</span>
+              </div>
+              <div class="result-item">
+                <span class="label">성공:</span>
+                <span class="value success">{{ uploadResult.success_count }}</span>
+              </div>
+              <div class="result-item">
+                <span class="label">업데이트:</span>
+                <span class="value update">{{ uploadResult.update_count }}</span>
+              </div>
+              <div class="result-item">
+                <span class="label">생성:</span>
+                <span class="value create">{{ uploadResult.create_count }}</span>
+              </div>
+              <div class="result-item">
+                <span class="label">실패:</span>
+                <span class="value error">{{ uploadResult.failed_count }}</span>
+              </div>
+            </div>
+            
+            <div v-if="uploadResult.failed_list && uploadResult.failed_list.length > 0" class="failed-list">
+              <h5>❌ 실패한 항목</h5>
+              <div class="failed-items">
+                <div v-for="item in uploadResult.failed_list" :key="item.row" class="failed-item">
+                  <span class="row">행 {{ item.row }}:</span>
+                  <span class="code">{{ item.stock_code }}</span>
+                  <span class="name">{{ item.stock_name }}</span>
+                  <span class="error">{{ item.error }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="modal-actions">
+          <button @click="closeModal" class="btn btn-secondary">닫기</button>
+          <button 
+            @click="uploadExcelFile" 
+            :disabled="!selectedFile || uploading"
+            class="btn btn-primary"
+          >
+            {{ uploading ? '업로드 중...' : '업로드' }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -156,7 +293,13 @@ export default {
         institution_accum_init: 0,
         foreigner_accum_init: 0
       },
-      editingStockId: null
+      editingStockId: null,
+      // 엑셀 업로드 관련
+      showExcelUploadModal: false,
+      selectedFile: null,
+      uploading: false,
+      uploadResult: null,
+      isDragOver: false
     }
   },
   
@@ -264,6 +407,7 @@ export default {
     closeModal() {
       this.showCreateModal = false
       this.showEditModal = false
+      this.showExcelUploadModal = false
       this.editingStockId = null
       this.formData = {
         stock_code: '',
@@ -272,6 +416,10 @@ export default {
         institution_accum_init: 0,
         foreigner_accum_init: 0
       }
+      // 엑셀 업로드 관련 상태 초기화
+      this.selectedFile = null
+      this.uploadResult = null
+      this.isDragOver = false
     },
 
     // 기본 주식 데이터 삽입
@@ -291,6 +439,77 @@ export default {
          alert(message)
       } finally {
         this.loading = false
+      }
+    },
+
+    // 엑셀 업로드 관련 메서드들
+    triggerFileInput() {
+      this.$refs.fileInput.click()
+    },
+
+    handleFileSelect(event) {
+      const file = event.target.files[0]
+      if (file) {
+        this.selectedFile = file
+      }
+    },
+
+    handleFileDrop(event) {
+      this.isDragOver = false
+      const files = event.dataTransfer.files
+      if (files.length > 0) {
+        const file = files[0]
+        if (file.type.includes('spreadsheet') || file.name.endsWith('.xlsx') || file.name.endsWith('.xls') || file.name.endsWith('.csv')) {
+          this.selectedFile = file
+        } else {
+          alert('엑셀/CSV 파일(.xlsx, .xls, .csv)만 업로드 가능합니다.')
+        }
+      }
+      event.preventDefault()
+    },
+
+    removeFile() {
+      this.selectedFile = null
+      this.uploadResult = null
+      if (this.$refs.fileInput) {
+        this.$refs.fileInput.value = ''
+      }
+    },
+
+    async uploadExcelFile() {
+      if (!this.selectedFile) {
+        alert('업로드할 파일을 선택해주세요.')
+        return
+      }
+
+      this.uploading = true
+      this.uploadResult = null
+
+      try {
+        const formData = new FormData()
+        formData.append('file', this.selectedFile)
+
+        const response = await api.post('/stocks/upload-excel', formData, {
+          headers: {
+            'Content-Type': 'multipart/form-data'
+          }
+        })
+
+        this.uploadResult = response.data.results
+        await this.loadStocks() // 주식 목록 새로고침
+        
+        alert(`엑셀 파일 업로드 완료!\n총 ${this.uploadResult.total_rows}행, 성공 ${this.uploadResult.success_count}개, 업데이트 ${this.uploadResult.update_count}개, 생성 ${this.uploadResult.create_count}개, 실패 ${this.uploadResult.failed_count}개`)
+        
+        // 실패가 없으면 팝업 자동 닫기
+        if (this.uploadResult.failed_count === 0) {
+          this.closeModal()
+        }
+        
+      } catch (error) {
+        console.error('엑셀 파일 업로드 실패:', error)
+        alert('엑셀 파일 업로드에 실패했습니다.')
+      } finally {
+        this.uploading = false
       }
     }
   }
@@ -449,6 +668,15 @@ export default {
   background: #1976d2;
 }
 
+.btn-success {
+  background: #4caf50;
+  color: white;
+}
+
+.btn-success:hover {
+  background: #45a049;
+}
+
 /* 모달 스타일 */
 .modal-overlay {
   position: fixed;
@@ -470,6 +698,11 @@ export default {
   max-width: 90vw;
   max-height: 90vh;
   overflow-y: auto;
+}
+
+.excel-upload-modal {
+  width: 800px;
+  max-width: 90vw;
 }
 
 .modal-header {
@@ -539,5 +772,193 @@ export default {
   margin-top: 20px;
   padding-top: 15px;
   border-top: 1px solid #eee;
+}
+
+/* 엑셀 업로드 모달 스타일 */
+.modal-content {
+  padding: 20px;
+}
+
+.upload-section {
+  margin-bottom: 20px;
+}
+
+.file-upload-area {
+  border: 2px dashed #ddd;
+  border-radius: 8px;
+  padding: 40px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.file-upload-area:hover,
+.file-upload-area.dragover {
+  border-color: #1976d2;
+  background: #f8f9ff;
+}
+
+.upload-icon {
+  font-size: 48px;
+  margin-bottom: 10px;
+}
+
+.file-info {
+  color: #666;
+  font-size: 12px;
+  margin-top: 5px;
+}
+
+.selected-file {
+  margin-top: 15px;
+  padding: 10px;
+  background: #f5f5f5;
+  border-radius: 4px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.excel-format-info {
+  margin-bottom: 20px;
+}
+
+.excel-format-info h4 {
+  color: #1976d2;
+  margin-bottom: 10px;
+}
+
+.format-table {
+  overflow-x: auto;
+}
+
+.format-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.format-table th,
+.format-table td {
+  padding: 8px;
+  border: 1px solid #ddd;
+  text-align: left;
+}
+
+.format-table th {
+  background: #f5f5f5;
+  font-weight: 600;
+}
+
+.required {
+  color: #f44336;
+  font-weight: 600;
+}
+
+.optional {
+  color: #666;
+}
+
+.upload-result {
+  margin-top: 20px;
+  padding: 15px;
+  background: #f9f9f9;
+  border-radius: 4px;
+}
+
+.upload-result h4 {
+  color: #1976d2;
+  margin-bottom: 10px;
+}
+
+.result-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+  margin-bottom: 15px;
+}
+
+.result-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 5px 0;
+}
+
+.result-item .label {
+  font-weight: 500;
+}
+
+.result-item .value {
+  font-weight: 600;
+}
+
+.result-item .value.success {
+  color: #4caf50;
+}
+
+.result-item .value.update {
+  color: #2196f3;
+}
+
+.result-item .value.create {
+  color: #ff9800;
+}
+
+.result-item .value.error {
+  color: #f44336;
+}
+
+.failed-list {
+  margin-top: 15px;
+}
+
+.failed-list h5 {
+  color: #f44336;
+  margin-bottom: 10px;
+}
+
+.failed-items {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.failed-item {
+  display: flex;
+  gap: 10px;
+  padding: 5px 0;
+  border-bottom: 1px solid #eee;
+  font-size: 12px;
+}
+
+.failed-item .row {
+  font-weight: 600;
+  min-width: 50px;
+}
+
+.failed-item .code {
+  font-family: monospace;
+  min-width: 80px;
+}
+
+.failed-item .name {
+  flex: 1;
+}
+
+.failed-item .error {
+  color: #f44336;
+  font-size: 11px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 20px;
+  border-top: 1px solid #eee;
+}
+
+.header-actions {
+  display: flex;
+  gap: 10px;
 }
 </style> 

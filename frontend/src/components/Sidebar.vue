@@ -44,6 +44,13 @@
         </li>
         
         <li class="nav-item">
+          <router-link to="/history" class="nav-link" :class="{ active: $route.path === '/history' }">
+            <span class="nav-icon">📋</span>
+            <span class="nav-text">히스토리</span>
+          </router-link>
+        </li>
+        
+        <li class="nav-item">
           <router-link to="/collector" class="nav-link" :class="{ active: $route.path === '/collector' }">
             <span class="nav-icon">🔄</span>
             <span class="nav-text">데이터 수집</span>
