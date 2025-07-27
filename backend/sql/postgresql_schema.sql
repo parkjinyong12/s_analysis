@@ -51,11 +51,12 @@ CREATE TABLE IF NOT EXISTS data_history (
 -- 시스템 로그 테이블 생성
 CREATE TABLE IF NOT EXISTS system_log (
     id SERIAL PRIMARY KEY,
-    level VARCHAR(10) NOT NULL,
+    level VARCHAR(20) NOT NULL,
+    category VARCHAR(50) NOT NULL,
     message TEXT NOT NULL,
-    module VARCHAR(50),
-    function_name VARCHAR(100),
-    line_number INTEGER,
+    details TEXT,
+    user_id INTEGER,
+    ip_address VARCHAR(45),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

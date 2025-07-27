@@ -209,7 +209,7 @@
     </section>
 
     <!-- 테스트 결과 -->
-    <section v-if="testResults.length > 0" class="test-results">
+    <section v-if="testResults && testResults.length > 0" class="test-results">
       <h3>테스트 결과</h3>
       <div class="results-list">
         <div 
@@ -318,8 +318,8 @@ export default {
         // API 테스트는 시간이 오래 걸릴 수 있으므로 타임아웃을 60초로 설정
         const response = await api.get(API_ENDPOINTS.API_TEST.ENDPOINTS, { timeout: 60000 });
         
-        this.testSummary = response.data.summary;
-        this.testResults = response.data.results;
+        this.testSummary = response.data.summary || null;
+        this.testResults = response.data.results || [];
         
         this.showMessage('API 테스트가 완료되었습니다.', 'success');
         
