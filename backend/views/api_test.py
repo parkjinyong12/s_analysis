@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 API 테스트 관련 Blueprint
 서버 기동 시 REST API의 상태를 테스트하는 기능을 제공합니다.

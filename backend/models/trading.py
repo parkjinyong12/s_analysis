@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Stock Investor Trading 모델 정의
 주식 투자자별 거래 데이터를 관리하는 SQLAlchemy 모델

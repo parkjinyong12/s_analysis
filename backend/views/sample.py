@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Sample REST API 뷰
 샘플 데이터에 대한 CRUD API 엔드포인트를 제공합니다.

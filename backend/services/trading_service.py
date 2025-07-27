@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Stock Investor Trading 서비스 계층
 주식 투자자별 거래 데이터 관련 비즈니스 로직을 처리하는 서비스

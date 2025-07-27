@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Sample 모델 정의
 샘플 데이터를 관리하는 SQLAlchemy 모델

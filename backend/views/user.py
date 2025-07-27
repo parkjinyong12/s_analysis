@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from flask import Blueprint, jsonify, request
 from backend.services.user_service import create_user, get_all_users
 from backend.utils.transaction import safe_transaction, read_only_transaction

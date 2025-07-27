@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 User 모델 정의
 사용자 정보를 관리하는 SQLAlchemy 모델

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Data Collector REST API 뷰
 데이터 수집 작업을 관리하는 API 엔드포인트를 제공합니다.

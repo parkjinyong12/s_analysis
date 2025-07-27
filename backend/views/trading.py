@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Stock Investor Trading REST API 뷰
 주식 투자자별 거래 데이터에 대한 CRUD API 엔드포인트를 제공합니다.

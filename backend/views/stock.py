@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Stock REST API 뷰
 주식 목록에 대한 CRUD API 엔드포인트를 제공합니다.
